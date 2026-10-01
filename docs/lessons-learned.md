@@ -83,3 +83,16 @@ At this closeout, 58 offline tests, all 10 browser tests, type checking, lint, t
 ## MVP closeout
 
 The owner accepted the local MVP on October 1, 2026. Final validation covers 72 offline tests and 19 browser checks, plus typecheck, lint, production build, formatting and desktop/narrow visual review. The next proposed delivery slice is hosting; deployment must account for durable SQLite publications, artwork, independent collection, backups and restart persistence. Preserve source evidence and private handoffs locally, and document exactly what a clean clone needs to reproduce populated browsing.
+
+## Dynamic matchups
+
+- Prove joint-combination baselines with an independent reference before optimizing. Registered compositions, physical results and oriented perspectives require separate identities and counts.
+- Version derived indexes independently of source publications. Backfill must preserve source bytes, timestamps and active pointers; ready metadata and pointer publication belong in an atomic transaction.
+- Compare timestamp instants, not source spellings. Equivalent UTC offsets and fractional-second formats must obey the same inclusive window boundaries.
+- Apply the ranking floor before computing candidate baselines. Sparse targets can avoid an entire baseline scan; overall discovery can reuse its sample counters.
+- Measure request-thread pauses as well as query duration. Read-only SQLite workers and short composition batches keep navigation responsive without introducing another service.
+- Strict index reconciliation can expose inconsistent historical test fixtures. Correct fictitious source contracts rather than weakening eligibility or enabling unaudited regulations.
+- Retain displayed results, summaries and publication identity together during filter failures and stale-response races. Keep search focus after adding/removing Pokémon, including the six-member cap.
+- Distinguish a pending valid query from an incomplete selection. Clearing the last required member must discard the prior result and errors immediately, and late responses must not revive them. Retained rows may only navigate when their request matches the controls.
+
+This local slice validates 81 offline tests and 29 browser checks, plus typecheck, lint, production build, formatting and real-data desktop/narrow review. The clearing follow-up passes all 10 focused Matchups browser checks and 42 independent direct-comparison checks on the saved publication, covering A sizes 1–6 and B sizes 0–6. The saved publication's source facts and timestamp remain unchanged. Dynamic Matchups supports all six sizes, including honest sparse results. Hosting remains deferred and no subsequent implementation slice is authorized.

@@ -14,6 +14,7 @@ import type {
 import { reconcileSources, recordProviders } from '../domain/sources';
 import { reconcileRecords } from '../domain/reconciliation';
 import { encodePublication, decodePublication } from './codec';
+import { matchupSchema, buildMatchupIndex } from './matchup-index';
 import {
   regulations,
   requireRegulation,
@@ -226,11 +227,13 @@ export class Store {
         'Incoming regulation requires staging and deliberate activation',
       );
     const payload = encodePublication(dataset);
+    matchupSchema(this.db);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db
         .prepare('INSERT OR IGNORE INTO versions VALUES (?,?,?,?)')
         .run(dataset.id, regulation, dataset.publishedAt, payload);
+      buildMatchupIndex(this.db, dataset);
       this.db
         .prepare('INSERT OR REPLACE INTO pointers VALUES (?,?)')
         .run(stage ? `staged:${regulation}` : 'active', dataset.id);

@@ -2,7 +2,9 @@
 
 A local, dark-first Pokémon Champions VGC analytics application. Browse tournament registration usage and observed team performance, plus separate Showdown and in-game Champions Doubles ladder statistics.
 
-The initial draft and expanded data/formatting slice are accepted. Official Masters coverage and safe regulation transitions are implemented locally: see the [official coverage and transition report](docs/official-coverage.md), [earlier coverage report](docs/data-slice.md), and [lessons learned](docs/lessons-learned.md).
+Matchups compares registered combinations of one to six Pokémon, shows each combination's own overall baseline and discovers best/worst observed combinations of all six sizes. Select overall performance or a fixed opponent. Tournament filters use explicit Apply; expandable evidence distinguishes physical results from team perspectives. Manual sparse records remain inspectable, while automatic rankings require the published evidence floor. These describe tournament associations, not battle predictions. See the [calculation contract and implementation report](docs/dynamic-matchups.md).
+
+The dynamic matchup calculator is completed and accepted, including comparison clearing and navigation cleanup. Official Masters coverage and safe regulation transitions are also implemented locally: see the [official coverage and transition report](docs/official-coverage.md), [earlier coverage report](docs/data-slice.md), and [lessons learned](docs/lessons-learned.md).
 
 The glossy usage rows and monochrome Poké Ball brand remain; detail pages use compact tables with small sprites. Tournament source/sheet filters default to All. Sources toggle independently, so RK9's pokedata mirror and Limitless can be selected together without Victory Road. Filter edits and Reset wait for Apply Filter. Events require 20+ entrants and large means 100+. Performer columns sort by win rate or change versus that Pokémon's overall rate, with change selected by default. Registered build summaries combine equivalent casing/spacing while preserving raw evidence. Archive preserves frozen publications. Row colors follow canonical primary typing and do not encode performance.
 
@@ -26,6 +28,8 @@ npm run dev
 ```
 
 Open [Monstats locally](http://127.0.0.1:3000). Production-style local preview: `npm run build`, then `npm start`. Servers bind only to loopback. Browsing reads local publications and artwork; it never triggers collection.
+
+For an existing saved tournament publication, run `npm run matchups:backfill` once before opening [Matchups locally](http://127.0.0.1:3000/matchups). New tournament publications build the validated index atomically. Backfill preserves source facts and publication timestamps; browsing never builds an index. `npm run matchups:benchmark` measures saved-data queries and writes private QA evidence.
 
 Collect ladder data independently:
 

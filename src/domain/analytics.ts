@@ -40,6 +40,14 @@ export function rejection(match: Match, event: NormalizedEvent): string | null {
     return 'ambiguous-winner';
   return null;
 }
+export function eligibleResult(
+  match: Match,
+  event: NormalizedEvent,
+  leftResolved: boolean,
+  rightResolved: boolean,
+) {
+  return !rejection(match, event) && leftResolved && rightResolved;
+}
 export function selectEvents(events: NormalizedEvent[], options: Options) {
   const end = Date.parse(options.asOf),
     start = end - options.days * 86400000;
@@ -116,11 +124,12 @@ export function aggregate(
       seen.add(match.id);
       const left = teams.get(match.player1),
         right = teams.get(match.player2 ?? '');
-      if (rejection(match, event) || !left?.length || !right?.length) {
+      if (!eligibleResult(match, event, !!left?.length, !!right?.length)) {
         excludedMatches++;
         continue;
       }
       matches++;
+      if (!left || !right) throw new Error('Unresolved eligible teams');
       const key = `${provenance(event).canonicalEvent}:${match.id}`;
       for (const [own, opp, player] of [
         [left, right, match.player1],

@@ -24,7 +24,9 @@
     "ingest:ladder": "tsx scripts/ingest-ladder.ts",
     "ingest:ladder:watch": "tsx scripts/ladder-worker.ts",
     "regulation:activate": "tsx scripts/activate.ts",
-    "trace": "tsx scripts/trace.ts"
+    "trace": "tsx scripts/trace.ts",
+    "matchups:backfill": "tsx scripts/backfill-matchups.ts",
+    "matchups:benchmark": "tsx scripts/benchmark-matchups.ts"
   },
   "dependencies": {
     "@pkmn/dex": "^0.10.0",

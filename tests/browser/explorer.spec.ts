@@ -446,7 +446,20 @@ test('an atomic regulation switch keeps displayed data and regulation together a
       ...saved,
       id: 'incoming-regulation-browser-fixture',
       regulation: 'M-D',
-      events: saved.events.map((e) => ({ ...e, regulation: 'M-D' })),
+      // This simulated future cohort uses community evidence. Copying an
+      // official M-C contract would fail the derived-index reconciliation.
+      events: saved.events.map((e) => ({
+        ...e,
+        regulation: 'M-D',
+        provenance:
+          e.provenance?.official === 'verified'
+            ? {
+                ...e.provenance,
+                official: 'unknown' as const,
+                division: undefined,
+              }
+            : e.provenance,
+      })),
       views: Object.fromEntries(
         Object.entries(saved.views).map(([key, v]) => [
           key,

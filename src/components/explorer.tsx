@@ -8,8 +8,6 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
-  SlidersHorizontal,
-  Search,
   X,
   Database,
   Info,
@@ -18,7 +16,7 @@ import {
   ChartNoAxesColumnIncreasing,
 } from 'lucide-react';
 import { rankMatchups } from '@/domain/rankings';
-import { sourceMatches, toggleSource } from '@/domain/filters';
+import { sourceMatches } from '@/domain/filters';
 import type {
   Aggregate,
   MatchupRow,
@@ -31,6 +29,8 @@ import { cohortKey } from '@/domain/regulations';
 import { LadderPanel } from './ladder';
 import { rowColor } from './pokemon-color';
 import { StatSpread } from './stat-spread';
+import { DynamicMatchups } from './dynamic-matchups';
+import { Toolbar } from './tournament-toolbar';
 const pct = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
 const pp = (n: number | null) =>
   n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)} points`;
@@ -83,7 +83,13 @@ function Empty({
     </div>
   );
 }
-export function Explorer({ data }: { data: AppData }) {
+export function Explorer({
+  data,
+  initialTab = 'tournaments',
+}: {
+  data: AppData;
+  initialTab?: 'tournaments' | 'matchups';
+}) {
   const router = useRouter();
   useEffect(() => {
     const timer = setInterval(() => {
@@ -91,13 +97,20 @@ export function Explorer({ data }: { data: AppData }) {
     }, 60000);
     return () => clearInterval(timer);
   }, [router]);
-  const [tab, setTab] = useState<'tournaments' | 'ladder' | 'archive'>(
-    'tournaments',
-  );
+  const [tab, setTab] = useState<
+    'tournaments' | 'ladder' | 'archive' | 'matchups'
+  >(initialTab);
   const [ladderContext, setLadderContext] = useState({
     source: 'Showdown',
     regulation: 'M-C',
   });
+  const [matchupContext, setMatchupContext] = useState(
+    data.current?.regulation ?? 'M-C',
+  );
+  const [matchupEntry, setMatchupEntry] = useState<{
+    a: string[];
+    b: string[];
+  }>({ a: [], b: [] });
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const { sheet, source, official, minPlayers } = filters;
@@ -246,15 +259,30 @@ export function Explorer({ data }: { data: AppData }) {
           <strong>
             {tab === 'ladder'
               ? ladderContext.regulation
-              : (dataset?.regulation ?? data.current?.regulation ?? 'M-C')}
+              : tab === 'matchups'
+                ? matchupContext
+                : (dataset?.regulation ?? data.current?.regulation ?? 'M-C')}
           </strong>
         </div>
       </header>
       <main id="main" className="workspace">
         <h1 className="sr-only">
-          {tab === 'archive' ? 'Regulation archive' : 'Pokémon usage'}
+          {tab === 'archive'
+            ? 'Regulation archive'
+            : tab === 'matchups'
+              ? 'Dynamic matchups'
+              : 'Pokémon usage'}
         </h1>
         <nav className="tabs" aria-label="Data views">
+          <button
+            aria-current={tab === 'matchups' ? 'page' : undefined}
+            onClick={() => {
+              setMatchupEntry({ a: [], b: [] });
+              changeTab('matchups');
+            }}
+          >
+            Matchups
+          </button>
           <button
             aria-current={tab === 'tournaments' ? 'page' : undefined}
             onClick={() => changeTab('tournaments')}
@@ -279,6 +307,14 @@ export function Explorer({ data }: { data: AppData }) {
         </nav>
         {tab === 'ladder' ? (
           <LadderPanel data={data} onContext={setLadderContext} />
+        ) : tab === 'matchups' && data.current ? (
+          <DynamicMatchups
+            dataset={data.current}
+            initialA={matchupEntry.a}
+            initialB={matchupEntry.b}
+            initialFilters={view?.options}
+            onContext={setMatchupContext}
+          />
         ) : tab === 'archive' && !dataset ? (
           <Empty icon="archive" title="No archived regulations">
             <p>
@@ -411,6 +447,28 @@ export function Explorer({ data }: { data: AppData }) {
                         </small>
                       </div>
                     </div>
+                    {tab === 'tournaments' && (
+                      <div className="detail-matchup-links">
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setMatchupEntry({ a: [pokemon.id], b: [] });
+                            changeTab('matchups');
+                          }}
+                        >
+                          Compare {pokemon.name} teams
+                        </button>
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setMatchupEntry({ a: [], b: [pokemon.id] });
+                            changeTab('matchups');
+                          }}
+                        >
+                          Discover combinations into {pokemon.name}
+                        </button>
+                      </div>
+                    )}
                     <BuildCards
                       builds={view.builds?.[pokemon.id]}
                       name={pokemon.name}
@@ -727,168 +785,6 @@ function Matchup({
         </tr>
       )}
     </>
-  );
-}
-function Toolbar({
-  query,
-  setQuery,
-  sheet,
-  source,
-  official,
-  minPlayers,
-  providers,
-  onFilter,
-  reset,
-  apply,
-  appliedSheet,
-  active,
-  unavailable = false,
-}: {
-  query: string;
-  setQuery: (value: string) => void;
-  sheet: Visibility | 'all';
-  source: string;
-  official: boolean;
-  minPlayers: number;
-  providers: PublicDataset['providers'];
-  onFilter: (
-    field: 'sheet' | 'source' | 'size' | 'official',
-    value: string,
-  ) => void;
-  reset: () => void;
-  apply: () => void;
-  appliedSheet: Visibility | 'all';
-  active: boolean;
-  unavailable?: boolean;
-}) {
-  const popover = useRef<HTMLDetailsElement>(null);
-  const available = [
-    ...providers,
-    ...(source === 'all' || source === 'none'
-      ? []
-      : source
-          .split(',')
-          .filter((id) => !providers.some((p) => p.id === id))
-          .map((id) => ({ id, name: id }))),
-  ];
-  return (
-    <div className="toolbar">
-      <label className="search">
-        <Search size={17} />
-        <span className="sr-only">Search Pokémon</span>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search Pokémon…"
-        />
-        {query && (
-          <button onClick={() => setQuery('')} aria-label="Clear search">
-            <X size={15} />
-          </button>
-        )}
-      </label>
-      <div className="toolbar-right">
-        <span className="sheet-context">
-          {unavailable
-            ? 'Ladder'
-            : appliedSheet === 'all'
-              ? 'All sheets'
-              : appliedSheet === 'open'
-                ? 'OTS'
-                : 'CTS'}
-        </span>
-        <details className="filters" ref={popover}>
-          <summary>
-            <SlidersHorizontal size={15} />
-            Filters
-            {active && !unavailable && <span className="filter-dot" />}
-          </summary>
-          <div className="filter-popover">
-            <fieldset className="source-options" disabled={unavailable}>
-              <legend>Sources</legend>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={source === 'all'}
-                  onChange={() =>
-                    onFilter('source', source === 'all' ? 'none' : 'all')
-                  }
-                />
-                All sources
-              </label>
-              {available.map((p) => (
-                <label key={p.id}>
-                  <input
-                    type="checkbox"
-                    checked={sourceMatches(source, [p.id])}
-                    onChange={() =>
-                      onFilter(
-                        'source',
-                        toggleSource(
-                          source,
-                          p.id,
-                          available.map((p) => p.id),
-                        ),
-                      )
-                    }
-                  />
-                  {p.name}
-                </label>
-              ))}
-            </fieldset>
-            {!unavailable && (
-              <>
-                <label>
-                  Events
-                  <select
-                    value={String(official)}
-                    onChange={(e) => onFilter('official', e.target.value)}
-                  >
-                    <option value="false">All</option>
-                    <option value="true">Official events</option>
-                  </select>
-                </label>
-                <label>
-                  Team sheets
-                  <select
-                    value={sheet}
-                    onChange={(e) => onFilter('sheet', e.target.value)}
-                  >
-                    <option value="all">All</option>
-                    <option value="open">OTS</option>
-                    <option value="closed">CTS</option>
-                  </select>
-                </label>
-                <label>
-                  Event size
-                  <select
-                    value={minPlayers}
-                    onChange={(e) => onFilter('size', e.target.value)}
-                  >
-                    <option value={0}>All events (20+)</option>
-                    <option value={100}>Large (100+)</option>
-                  </select>
-                </label>
-                <div className="filter-actions">
-                  <button className="text-button" onClick={reset}>
-                    Reset
-                  </button>
-                  <button
-                    className="apply-filter"
-                    onClick={() => {
-                      apply();
-                      if (popover.current) popover.current.open = false;
-                    }}
-                  >
-                    Apply Filter
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </details>
-      </div>
-    </div>
   );
 }
 function BuildCards({

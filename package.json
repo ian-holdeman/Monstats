@@ -21,6 +21,8 @@
     "audit:official": "tsx scripts/audit-official.ts",
     "ingest": "tsx scripts/ingest.ts",
     "ingest:watch": "tsx scripts/worker.ts",
+    "ingest:ladder": "tsx scripts/ingest-ladder.ts",
+    "ingest:ladder:watch": "tsx scripts/ladder-worker.ts",
     "regulation:activate": "tsx scripts/activate.ts",
     "trace": "tsx scripts/trace.ts"
   },

@@ -1,10 +1,14 @@
 # Monstats
 
-A local, dark-first Pokémon Champions analytics application. Browse tournament registration usage, then inspect observed performance of teams containing each Pokémon against teams containing another.
+A local, dark-first Pokémon Champions VGC analytics application. Browse tournament registration usage and observed team performance, plus separate Showdown and in-game Champions Doubles ladder statistics.
 
 The initial draft and expanded data/formatting slice are accepted. Official Masters coverage and safe regulation transitions are implemented locally: see the [official coverage and transition report](docs/official-coverage.md), [earlier coverage report](docs/data-slice.md), and [lessons learned](docs/lessons-learned.md).
 
-The glossy usage rows and monochrome Poké Ball brand remain; detail pages use compact tables with small sprites. Source/sheet filters default to All. Sources toggle independently, so RK9's pokedata mirror and Limitless can be selected together without Victory Road. Filter edits and Reset wait for Apply Filter. Events require 20+ entrants and large means 100+. Performer columns sort by win rate or change versus that Pokémon's overall rate, with change selected by default. Registered build summaries combine equivalent casing/spacing while preserving raw evidence. Ladder remains unavailable pending a verified dataset. Archive preserves frozen publications. Row colors are decorative.
+The glossy usage rows and monochrome Poké Ball brand remain; detail pages use compact tables with small sprites. Tournament source/sheet filters default to All. Sources toggle independently, so RK9's pokedata mirror and Limitless can be selected together without Victory Road. Filter edits and Reset wait for Apply Filter. Events require 20+ entrants and large means 100+. Performer columns sort by win rate or change versus that Pokémon's overall rate, with change selected by default. Registered build summaries combine equivalent casing/spacing while preserving raw evidence. Archive preserves frozen publications. Row colors follow canonical primary typing and do not encode performance.
+
+Ladder's expanded Filters panel starts with Showdown and Champions source buttons. Showdown offers regulation, month, BO1/BO3 and All ratings / 1500+ / 1630+ / 1760+. Champions offers regulation and season/capture, with BO1 only and no rating split. Source and filter edits wait for Apply Filter; the header and summary below Filters follow the data actually displayed. Reporting dates use MM/YY. Champions shows usage rank once per row, teammate ranks, marginal build percentages and available rank history. These populations have no combined All view. Ladder win rates remain unavailable because the integrated usage sources supply no competitive team outcomes. See the [ladder source and coverage report](docs/ladder-coverage.md).
+
+Details use bounded caches for immutable publications and warm nearby, hovered and keyboard-focused Pokémon. Cold reads retain current content until the new detail is ready. Spread labels omit nature names; explicitly paired nature effects color raised stats green and lowered stats red, with accessible descriptions. Champions' independent nature/spread marginals are not joined.
 
 Teammates shows the percentage of the selected Pokémon's complete registered teams that also include each teammate, sorted from most common. Click a teammate to continue exploring its team context. All available detail cards are expanded by default, with Abilities last. Best/worst performer headings refer explicitly to opposing Pokémon teams.
 
@@ -22,6 +26,20 @@ npm run dev
 ```
 
 Open [Monstats locally](http://127.0.0.1:3000). Production-style local preview: `npm run build`, then `npm start`. Servers bind only to loopback. Browsing reads local publications and artwork; it never triggers collection.
+
+Collect ladder data independently:
+
+```powershell
+npm run ingest:ladder
+# Explicit source/month selection:
+npm run ingest:ladder -- --environment showdown --months 2026-08,2026-09
+npm run ingest:ladder -- --environment champions
+npm run assets:cache -- --ladder
+# Optional independent local worker:
+npm run ingest:ladder:watch
+```
+
+By default, Showdown discovers the latest published month and retains August 2026 as the historical M-B audit month. Only explicitly recognized Champions VGC M-B/M-C formats enter ingestion. Champions performs a complete, resumable Doubles detail sweep at the source's ten-second request spacing; this can take roughly 45 minutes. Daily checks and five-minute failure retries run only while the optional worker is active. `--once` checks due sources once. No operating-system scheduler is installed. A source failure preserves its prior ladder publications and independent tournament coverage. New Champions seasons require a reviewed source contract; the current contract is M-6/M-C.
 
 `npm run ingest` discovers all available Limitless M-C listing/completed pages and public Victory Road circuit results. Completed standard Champions events require 20 evidenced entrants within the rolling 30-day window. Listing exhaustion is **not a worldwide census or complete team coverage**. Existing facts are cached for 24 hours; `--force` revisits them. `--max-reads 500` sets a resumable Limitless request budget. The old `--limit` option is retired. Failure preserves saved facts; local date expiry still applies. Polling details stay outside the UI.
 
@@ -69,6 +87,9 @@ npm run format:check
 $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path (Get-Location) '.monstats\browsers'
 npx playwright install chromium
 npm run test:e2e
+# Alternatively, use an already installed Chrome:
+$env:MONSTATS_BROWSER_CHANNEL = 'chrome'
+npm run test:e2e
 ```
 
 Browser tests create labeled deterministic fixtures in `.monstats/e2e/` and use a separate server on port 3100. They never replace the owner's database. Client requests are observed; server upstream attempts are blocked and logged. These checks verify behavior, not independent upstream accuracy.
@@ -79,6 +100,6 @@ Browser tests create labeled deterministic fixtures in `.monstats/e2e/` and use 
 
 ## Attribution
 
-Data: [Limitless API](https://docs.limitlesstcg.com/developer/tournaments.html), organizer descriptions, [Victory Road circuit results](https://circuit.victoryroad.pro/) and the [pokedata public RK9 mirror](https://pokedata.ovh/standings2/). Parsers are original code. Canonical identities and stones: [@pkmn/dex](https://github.com/pkmn/ps). Artwork: locally cached [Pokémon Showdown sprites](https://play.pokemonshowdown.com/sprites/). Pokémon characters and artwork belong to their respective rights holders. This is an unofficial personal project.
+Data: [Limitless API](https://docs.limitlesstcg.com/developer/tournaments.html), organizer descriptions, [Victory Road circuit results](https://circuit.victoryroad.pro/), the [pokedata public RK9 mirror](https://pokedata.ovh/standings2/), [Smogon monthly Showdown statistics](https://www.smogon.com/stats/) and [MunchStats in-game capture](https://www.munchstats.com/about/). Parsers are original code. Canonical identities and stones: [@pkmn/dex](https://github.com/pkmn/ps). Artwork: locally cached [Pokémon Showdown sprites](https://play.pokemonshowdown.com/sprites/). Pokémon characters and artwork belong to their respective rights holders. This is an unofficial personal project.
 
 [MunchStats](https://github.com/PizzaTimeJoshua/munchstats) was studied for separating source caches, normalization and aggregates. No license was declared at audit time; no code was incorporated. This application was drafted with OpenAI Codex assistance.

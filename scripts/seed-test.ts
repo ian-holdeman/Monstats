@@ -1,6 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { Store, publish } from '../src/server/store';
 import { fixture, slot } from '../tests/fixtures';
+import { LadderStore } from '../src/server/ladder-store';
+import { parseShowdown, parseChampions } from '../src/domain/ladder';
+import {
+  championsResponse,
+  showdownUsage,
+  showdownChaos,
+} from '../tests/ladder-fixtures';
 await mkdir('.monstats/e2e', { recursive: true });
 // This directory is reserved for isolated browser fixtures; never touch the owner's DB.
 for (const suffix of ['', '-wal', '-shm'])
@@ -102,4 +109,48 @@ publish(
   new Date().toISOString(),
   'DETERMINISTIC BROWSER FIXTURE — not tournament data',
 );
+const ladder = new LadderStore(store);
+const snapshot = {
+  url: 'https://example.test/ladder-fixture',
+  checksum: 'a'.repeat(64),
+  retrievedAt: new Date().toISOString(),
+};
+const drafts = [];
+for (const regulation of ['mb', 'mc'])
+  for (const month of regulation === 'mb'
+    ? ['2026-08', '2026-09']
+    : ['2026-09'])
+    for (const mode of ['', 'bo3'])
+      for (const rating of [0, 1500, 1630, 1760]) {
+        const formatId = `gen9championsvgc2026reg${regulation}${mode}`;
+        const chaos = showdownChaos();
+        chaos.info.metagame = formatId;
+        chaos.info.cutoff = rating;
+        const d = parseShowdown(showdownUsage, chaos, {
+          month,
+          formatId,
+          rating,
+          snapshots: [snapshot],
+        });
+        d.notes.push(
+          'DETERMINISTIC BROWSER FIXTURE — not actual ladder statistics',
+        );
+        drafts.push(d);
+      }
+ladder.publishBatch(drafts);
+const first = championsResponse(),
+  second = {
+    ...first,
+    selected_pokemon: 'Incineroar',
+    current_pokemon: ['Incineroar', '', '2', []],
+    moves_list: [['Fake Out', '50.0']],
+    items_list: [['Sitrus Berry', '40.0']],
+    abilities_list: [['Intimidate', '100.0']],
+    teammates_list: [['Rillaboom', '#1']],
+  };
+const champions = parseChampions([first, second], [snapshot]);
+champions.notes.push(
+  'DETERMINISTIC BROWSER FIXTURE — not actual ladder statistics',
+);
+ladder.publish(champions);
 store.close();

@@ -10,6 +10,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
     ...devices['Desktop Chrome'],
     colorScheme: 'dark',
+    channel: process.env.MONSTATS_BROWSER_CHANNEL,
   },
   webServer: {
     command: 'npm run start -- --port 3100',

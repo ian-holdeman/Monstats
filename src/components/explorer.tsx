@@ -1,6 +1,6 @@
 'use client';
 /* eslint-disable @next/next/no-img-element -- artwork is a small, already local PNG served without an upstream optimizer */
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -28,6 +28,9 @@ import type {
 } from '@/domain/types';
 import type { AppData, PublicDataset } from '@/server/reader';
 import { cohortKey } from '@/domain/regulations';
+import { LadderPanel } from './ladder';
+import { rowColor } from './pokemon-color';
+import { StatSpread } from './stat-spread';
 const pct = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
 const pp = (n: number | null) =>
   n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)} points`;
@@ -38,29 +41,6 @@ const defaultFilters = {
   minPlayers: 0,
 };
 const number = (n: number) => n.toLocaleString('en-US');
-function rowColor(id: string): CSSProperties {
-  const colors: Record<string, string> = {
-    rillaboom: '63 151 103',
-    incineroar: '192 71 65',
-    sneasler: '130 106 193',
-    raichumegay: '206 153 61',
-    garchompmegaz: '70 109 183',
-    gholdengo: '183 153 53',
-    volcarona: '203 99 63',
-    floettemega: '171 108 155',
-  };
-  const palette = [
-    '79 124 180',
-    '137 103 172',
-    '59 147 136',
-    '168 109 76',
-    '102 128 173',
-  ];
-  const hash = [...id].reduce((n, c) => n + c.charCodeAt(0), 0);
-  return {
-    '--row-color': colors[id] ?? palette[hash % palette.length],
-  } as CSSProperties;
-}
 const date = (s: string) =>
   new Date(s).toLocaleDateString('en-US', {
     month: 'short',
@@ -114,6 +94,10 @@ export function Explorer({ data }: { data: AppData }) {
   const [tab, setTab] = useState<'tournaments' | 'ladder' | 'archive'>(
     'tournaments',
   );
+  const [ladderContext, setLadderContext] = useState({
+    source: 'Showdown',
+    regulation: 'M-C',
+  });
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const { sheet, source, official, minPlayers } = filters;
@@ -252,11 +236,17 @@ export function Explorer({ data }: { data: AppData }) {
           </span>
           monstats
         </Link>
-        <div className="header-context">
-          <span>Pokémon Champions</span>
+        <div
+          className={`header-context ${tab === 'ladder' ? 'ladder-header-context' : ''}`}
+        >
+          <span>
+            {tab === 'ladder' ? ladderContext.source : 'Pokémon Champions'}
+          </span>
           <span className="header-divider" />
           <strong>
-            {dataset?.regulation ?? data.current?.regulation ?? 'M-C'}
+            {tab === 'ladder'
+              ? ladderContext.regulation
+              : (dataset?.regulation ?? data.current?.regulation ?? 'M-C')}
           </strong>
         </div>
       </header>
@@ -288,23 +278,7 @@ export function Explorer({ data }: { data: AppData }) {
           </button>
         </nav>
         {tab === 'ladder' ? (
-          <section className="analysis-panel" aria-label="Pokémon analysis">
-            <Toolbar
-              query={query}
-              setQuery={setQuery}
-              {...draftFilters}
-              appliedSheet={sheet}
-              active={filtersActive}
-              providers={[]}
-              unavailable
-              onFilter={() => {}}
-              reset={() => {}}
-              apply={() => {}}
-            />
-            <Empty icon="ladder" title="No ladder data available">
-              <p>No verified ladder dataset is available.</p>
-            </Empty>
-          </section>
+          <LadderPanel data={data} onContext={setLadderContext} />
         ) : tab === 'archive' && !dataset ? (
           <Empty icon="archive" title="No archived regulations">
             <p>
@@ -1006,6 +980,8 @@ function BuildTable({
                   <Sprite id={v.id} />
                   {v.name}
                 </button>
+              ) : field === 'spreads' ? (
+                <StatSpread value={v.name} />
               ) : (
                 v.name
               )}

@@ -1,7 +1,9 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 await mkdir('.monstats/previews', { recursive: true });
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  channel: process.env.MONSTATS_BROWSER_CHANNEL,
+});
 try {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1080 },
@@ -32,9 +34,7 @@ try {
     fullPage: true,
   });
   await page.getByRole('button', { name: 'Ladder', exact: true }).click();
-  await page
-    .getByRole('heading', { name: 'No ladder data available' })
-    .waitFor();
+  await page.locator('.ladder-table, .ladder-panel .empty').waitFor();
   await page.screenshot({ path: '.monstats/previews/ladder-mobile.png' });
   await page.setViewportSize({ width: 1440, height: 1080 });
   await page.screenshot({ path: '.monstats/previews/ladder.png' });

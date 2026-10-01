@@ -221,7 +221,7 @@ test('usage search, sort, filters, detail navigation and keyboard return', async
     page.getByRole('heading', { name: 'No Pokémon found' }),
   ).toBeVisible();
 });
-test('unavailable populations are honest and browsing makes only local requests', async ({
+test('separate populations browse with only local requests', async ({
   page,
 }) => {
   const upstream: string[] = [];
@@ -230,16 +230,20 @@ test('unavailable populations are honest and browsing makes only local requests'
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Ladder', exact: true }).click();
+  await page.getByText('Filters', { exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'No ladder data available' }),
-  ).toBeVisible();
+    page.getByRole('button', { name: 'Showdown', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.ladder-table')).toBeVisible();
   await expect(
     page.getByRole('textbox', { name: 'Search Pokémon' }),
   ).toBeVisible();
-  await page.getByText('Filters', { exact: true }).click();
   await expect(
     page.getByRole('checkbox', { name: 'All sources', exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'BO3', exact: true }),
+  ).toBeEnabled();
   await page.getByRole('button', { name: 'Archive', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'No archived regulations' }),

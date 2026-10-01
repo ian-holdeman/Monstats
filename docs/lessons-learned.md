@@ -59,3 +59,27 @@ At slice completion, 13 offline domain/storage tests and four browser tests pass
 - Close a slice with an accurate handoff, verified commit and stopped local servers. Retain ignored databases, source snapshots, artwork and QA evidence for reproducible follow-up work.
 
 At this closeout, 58 offline tests, all 10 browser tests, type checking, lint, the production build and formatting checks pass. Browser fixtures remain separate from the owner's saved data. Accepted UI changes do not constitute new observations or refresh the publication's source timestamp.
+
+## Ladder integration
+
+- Diagnose direct permitted HTTP reads before interpreting a browsing-tool error as missing monthly coverage. Import only formats actually listed by the source.
+- Calendar reports, ranked seasons, source captures and aggregation windows are different facts. Preserve each independently; unknown population counts stay unknown.
+- Rankings and build percentages need different display contracts. Raw usage appearances, real appearances and set observations also have distinct meanings.
+- A full detail sweep can expose malformed fields absent from a small audit. Quarantine unresolved labels with original evidence and retain the independently valid fields.
+- Validate the capture and complete rank list across every detail response, then recheck them before publication. Respect source pacing and resume through saved snapshots.
+- Keep metadata catalogs small, serve usage rows separately and fetch details from the same immutable version. Decompressing every cohort for a page request is unnecessary.
+- Empty move slots can exceed 100% through multiplicity. Their source weights are evidence, but they are not move adoption percentages.
+- Public BO3 replays can expose full teams and next-game links without a retrievable series-room record. Recover and validate the series before computing series performance, and keep replay populations separate from monthly usage.
+
+## Interface rules for future slices
+
+- Keep the glossy, vibrant Pokémon rows and minimal chrome. Use canonical primary typing for row colors consistently across Tournament, Ladder and Archive; colors do not imply performance.
+- Put data-source buttons at the top of Filters and show only controls supported by that source. Apply commits source and filter edits together. Headers and summaries must describe the displayed data, including after failed reads.
+- Use MM/YY for reporting periods, inclusive rating labels such as 1500+, and All ratings for the zero-cutoff report. Keep precise dates and statistical definitions in provenance.
+- Place active filters below the Filter control. Remove repeated technical captions from cards and avoid displaying the same ranking twice.
+- Preserve context during navigation. Cache immutable results with bounded memory, deduplicate requests, warm likely destinations and use restrained progress feedback instead of replacing content with loading panels.
+- Show nature effects through the affected spread numbers, with accessible explanations. Never infer a joint nature/spread from independently published marginals.
+
+## MVP closeout
+
+The owner accepted the local MVP on October 1, 2026. Final validation covers 72 offline tests and 19 browser checks, plus typecheck, lint, production build, formatting and desktop/narrow visual review. The next proposed delivery slice is hosting; deployment must account for durable SQLite publications, artwork, independent collection, backups and restart persistence. Preserve source evidence and private handoffs locally, and document exactly what a clean clone needs to reproduce populated browsing.

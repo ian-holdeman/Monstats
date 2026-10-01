@@ -2,6 +2,8 @@
 
 Monstats measures registered teams and observed match results, not individual Pokémon combat or causal counter strength.
 
+Ladder uses separate aggregate contracts: monthly rating-weighted Showdown usage and captured in-game Champions ranks/build marginals. Ladder facts never enter tournament registration or outcome calculations. See the [ladder methodology and source report](ladder-coverage.md) for denominators, available periods, exclusions and reproduction.
+
 ## Collection and identity
 
 Limitless discovery exhausts paginated API listings and verified completed-list pagination. Exact IDs must match completion evidence; future starts are rejected. Public standard cartridge M-C events with submitted lists are required; custom bans/rules are excluded. A request budget pauses/resumes collection rather than implying complete coverage. Repeated pages, changed schemas and failed reads stop publication. Public-listing exhaustion does not prove worldwide coverage or a simultaneous upstream snapshot.

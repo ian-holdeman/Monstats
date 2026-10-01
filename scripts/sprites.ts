@@ -3,14 +3,26 @@ import { Dex } from '@pkmn/dex';
 import { Store } from '../src/server/store';
 import { databasePath, dataDirectory } from '../src/server/paths';
 import { resolve } from 'node:path';
+import { LadderStore } from '../src/server/ladder-store';
 await mkdir(resolve(dataDirectory(), 'sprites'), { recursive: true });
 const store = new Store(databasePath(), true);
 const dataset = store.current();
+const ladder = new LadderStore(store);
+const rows = new Map<string, { id: string }>(
+  (dataset
+    ? (dataset.views['all:0'] ?? dataset.views['open:0']).pokemon
+    : []
+  ).map((row) => [row.id, row]),
+);
+if (process.argv.includes('--ladder'))
+  for (const cohort of ladder.catalog())
+    for (const row of ladder.version(cohort.id)?.rows ?? [])
+      rows.set(row.id, row);
 store.close();
-if (!dataset) throw new Error('Publish a dataset before caching artwork');
+if (!rows.size) throw new Error('Publish a dataset before caching artwork');
 let downloaded = 0,
   missing = 0;
-for (const row of (dataset.views['all:0'] ?? dataset.views['open:0']).pokemon) {
+for (const row of rows.values()) {
   const path = resolve(dataDirectory(), `sprites/${row.id}.png`);
   try {
     await access(path);

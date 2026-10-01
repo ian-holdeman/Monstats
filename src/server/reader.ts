@@ -6,6 +6,8 @@ import { Store } from './store';
 import type { PublishedDataset, RefreshState } from '../domain/types';
 import { aggregate } from '../domain/analytics';
 import { sourceSelection } from '../domain/filters';
+import { LadderStore } from './ladder-store';
+import type { LadderSummary, LadderEnvironment } from '../domain/ladder';
 export type PublicDataset = Omit<
   PublishedDataset,
   'events' | 'collection' | 'quarantine'
@@ -31,6 +33,11 @@ export type AppData = {
   status: RefreshState | null;
   readError: boolean;
   now: string;
+  ladder?: {
+    catalog: LadderSummary[];
+    status: Partial<Record<LadderEnvironment, RefreshState | null>>;
+    readError: boolean;
+  };
 };
 export function publicDataset(
   d: PublishedDataset,
@@ -104,12 +111,31 @@ export function readAppData(): AppData {
   try {
     store = new Store(path, true);
     const current = store.current();
+    let ladder: NonNullable<AppData['ladder']> = {
+      catalog: [],
+      status: {},
+      readError: false,
+    };
+    try {
+      const saved = new LadderStore(store);
+      ladder = {
+        catalog: saved.catalog(),
+        status: {
+          showdown: saved.status('showdown'),
+          champions: saved.status('champions'),
+        },
+        readError: false,
+      };
+    } catch {
+      ladder.readError = true;
+    }
     return {
       current: current ? publicDataset(current) : null,
       archives: store.archives().map((d) => publicDataset(d)),
       status: store.status(),
       readError: false,
       now,
+      ladder,
     };
   } catch {
     return { current: null, archives: [], status: null, readError: true, now };

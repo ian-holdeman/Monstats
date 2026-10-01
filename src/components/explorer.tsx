@@ -1,11 +1,11 @@
 'use client';
 /* eslint-disable @next/next/no-img-element -- artwork is a small, already local PNG served without an upstream optimizer */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowDown,
   ArrowUp,
-  ArrowUpRight,
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
@@ -14,21 +14,29 @@ import {
   Database,
   Info,
   Layers,
-  CircleOff,
   Archive,
   ChartNoAxesColumnIncreasing,
 } from 'lucide-react';
-import { rankMatchups } from '@/domain/analytics';
+import { rankMatchups } from '@/domain/rankings';
+import { sourceMatches, toggleSource } from '@/domain/filters';
 import type {
   Aggregate,
   MatchupRow,
   PokemonRow,
   Visibility,
+  Builds,
 } from '@/domain/types';
 import type { AppData, PublicDataset } from '@/server/reader';
+import { cohortKey } from '@/domain/regulations';
 const pct = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
 const pp = (n: number | null) =>
-  n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)} pp`;
+  n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)} points`;
+const defaultFilters = {
+  sheet: 'all' as Visibility | 'all',
+  source: 'all',
+  official: false,
+  minPlayers: 0,
+};
 const number = (n: number) => n.toLocaleString('en-US');
 function rowColor(id: string): CSSProperties {
   const colors: Record<string, string> = {
@@ -57,14 +65,6 @@ const date = (s: string) =>
   new Date(s).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
-    timeZone: 'America/Denver',
-  });
-const stamp = (s: string) =>
-  new Date(s).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
     timeZone: 'America/Denver',
   });
 function Sprite({ id, large = false }: { id: string; large?: boolean }) {
@@ -104,11 +104,36 @@ function Empty({
   );
 }
 export function Explorer({ data }: { data: AppData }) {
+  const router = useRouter();
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') router.refresh();
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [router]);
   const [tab, setTab] = useState<'tournaments' | 'ladder' | 'archive'>(
     'tournaments',
   );
-  const [sheet, setSheet] = useState<Visibility>('open');
-  const [minPlayers, setMinPlayers] = useState(0);
+  const [filters, setFilters] = useState(defaultFilters);
+  const [draftFilters, setDraftFilters] = useState(defaultFilters);
+  const { sheet, source, official, minPlayers } = filters;
+  const filtersActive =
+    sheet !== 'all' || source !== 'all' || official || minPlayers > 0;
+  function editFilter(
+    field: 'sheet' | 'source' | 'size' | 'official',
+    value: string,
+  ) {
+    setDraftFilters((d) => ({
+      ...d,
+      ...(field === 'sheet'
+        ? { sheet: value as Visibility | 'all' }
+        : field === 'source'
+          ? { source: value }
+          : field === 'official'
+            ? { official: value === 'true' }
+            : { minPlayers: Number(value) }),
+    }));
+  }
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [sort, setSort] = useState<{
@@ -116,14 +141,60 @@ export function Explorer({ data }: { data: AppData }) {
     direction: 'asc' | 'desc';
   }>({ key: 'usage', direction: 'desc' });
   const [archiveId, setArchiveId] = useState(data.archives[0]?.id ?? '');
+  const [loadedDataset, setLoadedDataset] = useState<PublicDataset | null>(
+    data.current,
+  );
+  const [cohortPending, setCohortPending] = useState(false);
+  const [cohortError, setCohortError] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const openerId = useRef<string | null>(null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
-  const dataset =
+  const requestedDataset =
     tab === 'archive'
-      ? (data.archives.find((d) => d.id === archiveId) ?? null)
+      ? (data.archives.find((d) => d.id === archiveId) ??
+        data.archives[0] ??
+        null)
       : data.current;
-  const view = dataset?.views[`${sheet}:${minPlayers}`] ?? null;
+  useEffect(() => {
+    const controller = new AbortController();
+    const key = cohortKey(source, sheet, minPlayers, official);
+    async function load() {
+      await Promise.resolve();
+      if (!requestedDataset || tab === 'ladder') {
+        setLoadedDataset(requestedDataset);
+        setCohortPending(false);
+        return;
+      }
+      setCohortPending(true);
+      setCohortError(false);
+      try {
+        const next = requestedDataset.views[key]
+          ? requestedDataset
+          : await fetch(
+              `/data/${encodeURIComponent(requestedDataset.id)}?${new URLSearchParams({ source, sheet, size: String(minPlayers), official: String(official) })}`,
+              { signal: controller.signal },
+            ).then((r) => {
+              if (!r.ok) throw new Error('Cached cohort unavailable');
+              return r.json() as Promise<PublicDataset>;
+            });
+        if (!controller.signal.aborted) {
+          setLoadedDataset(next);
+          setCohortPending(false);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setCohortPending(false);
+          setCohortError(true);
+        }
+      }
+    }
+    void load();
+    return () => controller.abort();
+    // Publication identity changes trigger an immutable local read; interaction state persists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedDataset?.id, filters, tab]);
+  const dataset = requestedDataset ? loadedDataset : null;
+  const view = dataset ? (Object.values(dataset.views)[0] ?? null) : null;
   const pokemon = view?.pokemon.find((r) => r.id === selected);
   const filtered = (view?.pokemon ?? []).filter((r) =>
     r.name.toLowerCase().includes(query.toLowerCase().trim()),
@@ -164,8 +235,6 @@ export function Explorer({ data }: { data: AppData }) {
       direction: s.key === key && s.direction === 'desc' ? 'asc' : 'desc',
     }));
   }
-  const stale =
-    dataset && Date.parse(data.now) - Date.parse(dataset.asOf) > 86400000;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -186,7 +255,9 @@ export function Explorer({ data }: { data: AppData }) {
         <div className="header-context">
           <span>Pokémon Champions</span>
           <span className="header-divider" />
-          <strong>M-C</strong>
+          <strong>
+            {dataset?.regulation ?? data.current?.regulation ?? 'M-C'}
+          </strong>
         </div>
       </header>
       <main id="main" className="workspace">
@@ -206,7 +277,7 @@ export function Explorer({ data }: { data: AppData }) {
             onClick={() => changeTab('ladder')}
           >
             <ChartNoAxesColumnIncreasing size={16} />
-            Ladder<span className="soon">Planned</span>
+            Ladder
           </button>
           <button
             aria-current={tab === 'archive' ? 'page' : undefined}
@@ -217,12 +288,23 @@ export function Explorer({ data }: { data: AppData }) {
           </button>
         </nav>
         {tab === 'ladder' ? (
-          <Empty icon="ladder" title="Ladder data isn’t available yet">
-            <p>
-              A separate view for Champions closed team sheet play is planned.
-            </p>
-            <p className="muted">A reliable ladder source is still needed.</p>
-          </Empty>
+          <section className="analysis-panel" aria-label="Pokémon analysis">
+            <Toolbar
+              query={query}
+              setQuery={setQuery}
+              {...draftFilters}
+              appliedSheet={sheet}
+              active={filtersActive}
+              providers={[]}
+              unavailable
+              onFilter={() => {}}
+              reset={() => {}}
+              apply={() => {}}
+            />
+            <Empty icon="ladder" title="No ladder data available">
+              <p>No verified ladder dataset is available.</p>
+            </Empty>
+          </section>
         ) : tab === 'archive' && !dataset ? (
           <Empty icon="archive" title="No archived regulations">
             <p>
@@ -250,7 +332,7 @@ export function Explorer({ data }: { data: AppData }) {
               <label className="archive-select">
                 Published regulation
                 <select
-                  value={archiveId}
+                  value={requestedDataset?.id ?? archiveId}
                   onChange={(e) => {
                     setArchiveId(e.target.value);
                     setSelected(null);
@@ -258,124 +340,40 @@ export function Explorer({ data }: { data: AppData }) {
                 >
                   {data.archives.map((d) => (
                     <option key={d.id} value={d.id}>
-                      M-C · {date(d.views['open:0'].coverage.from ?? d.asOf)} –{' '}
-                      {date(d.views['open:0'].coverage.to ?? d.asOf)}
+                      {d.regulation} ·{' '}
+                      {date(Object.values(d.views)[0]?.coverage.from ?? d.asOf)}{' '}
+                      – {date(Object.values(d.views)[0]?.coverage.to ?? d.asOf)}
                     </option>
                   ))}
                 </select>
               </label>
             )}
-            {data.status?.state === 'failure' && tab === 'tournaments' && (
-              <div className="notice warning" role="status">
-                <CircleOff size={17} />
-                <span>
-                  New results couldn’t be loaded. Your saved results are still
-                  available.
-                </span>
-              </div>
-            )}
-            {stale &&
-              data.status?.state !== 'failure' &&
-              tab === 'tournaments' && (
-                <div className="notice warning" role="status">
-                  <Info size={17} />
-                  <span>
-                    Showing saved results. Recent tournaments may be missing.
-                  </span>
-                </div>
+            <section
+              className="analysis-panel"
+              aria-label="Pokémon analysis"
+              aria-busy={cohortPending}
+            >
+              <Toolbar
+                query={query}
+                setQuery={setQuery}
+                {...draftFilters}
+                appliedSheet={sheet}
+                active={filtersActive}
+                providers={dataset.providers}
+                onFilter={editFilter}
+                reset={() => setDraftFilters(defaultFilters)}
+                apply={() => setFilters({ ...draftFilters })}
+              />
+              {cohortError && (
+                <p role="status" className="small muted">
+                  These filters couldn’t be loaded. Saved results are still
+                  shown.
+                </p>
               )}
-            <section className="analysis-panel" aria-label="Pokémon analysis">
-              <div className="toolbar">
-                <label className="search">
-                  <Search size={17} />
-                  <span className="sr-only">Search Pokémon</span>
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search Pokémon…"
-                  />
-                  {query && (
-                    <button
-                      onClick={() => setQuery('')}
-                      aria-label="Clear search"
-                    >
-                      <X size={15} />
-                    </button>
-                  )}
-                </label>
-                <div className="toolbar-right">
-                  <span className="sheet-context">
-                    {sheet === 'open'
-                      ? 'Open sheets'
-                      : sheet === 'closed'
-                        ? 'Closed sheets'
-                        : 'Unknown sheets'}
-                  </span>
-                  <details className="filters">
-                    <summary>
-                      <SlidersHorizontal size={15} />
-                      Filters
-                      {(sheet !== 'open' || minPlayers > 0) && (
-                        <span className="filter-dot" />
-                      )}
-                    </summary>
-                    <div className="filter-popover">
-                      <label>
-                        Team sheets
-                        <select
-                          value={sheet}
-                          onChange={(e) => {
-                            setSheet(e.target.value as Visibility);
-                            setSelected(null);
-                          }}
-                        >
-                          <option value="open">Open</option>
-                          <option value="closed">Closed</option>
-                          <option value="unknown">Unknown</option>
-                        </select>
-                      </label>
-                      <label>
-                        Event size
-                        <select
-                          value={minPlayers}
-                          onChange={(e) => {
-                            setMinPlayers(Number(e.target.value));
-                            setSelected(null);
-                          }}
-                        >
-                          <option value={0}>All sampled events</option>
-                          <option value={50}>50+ entrants</option>
-                          <option value={100}>100+ entrants</option>
-                        </select>
-                      </label>
-                      <button
-                        className="text-button"
-                        onClick={() => {
-                          setSheet('open');
-                          setMinPlayers(0);
-                          setSelected(null);
-                        }}
-                      >
-                        Reset filters
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </div>
               {!view?.pokemon.length ? (
                 <Empty title="No data for these filters">
-                  <p>
-                    No published registrations match this sheet population and
-                    event size.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setSheet('open');
-                      setMinPlayers(0);
-                    }}
-                  >
-                    Reset filters
-                  </button>
+                  <p>No published registrations match these filters.</p>
+                  <p>Choose other filters, then select Apply Filter.</p>
                 </Empty>
               ) : selected && pokemon ? (
                 <div className="detail-layout">
@@ -439,6 +437,14 @@ export function Explorer({ data }: { data: AppData }) {
                         </small>
                       </div>
                     </div>
+                    <BuildCards
+                      builds={view.builds?.[pokemon.id]}
+                      name={pokemon.name}
+                      choose={(id) => {
+                        const row = view.pokemon.find((r) => r.id === id);
+                        if (row) choose(row);
+                      }}
+                    />
                     <Matchups
                       selected={pokemon.id}
                       name={pokemon.name}
@@ -601,17 +607,18 @@ function Matchups({
   choose: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const all = rankMatchups(view, selected, direction, dataset.floor),
+  const [sort, setSort] = useState<'difference' | 'winRate'>('difference');
+  const all = rankMatchups(view, selected, direction, dataset.floor, sort),
     rows = expanded ? all : all.slice(0, 3);
   return (
     <section
       className="matchup-section"
-      aria-label={`${direction === 'best' ? 'Best' : 'Worst'} performers into ${name}`}
+      aria-label={`${direction === 'best' ? 'Best' : 'Worst'} performers into ${name} teams`}
     >
       <div className="section-heading">
         <h3>
           {direction === 'best' ? 'Best' : 'Worst'} performers into{' '}
-          <span>{name}</span>
+          <span>{name} teams</span>
         </h3>
         {all.length > 3 && (
           <button
@@ -632,13 +639,51 @@ function Matchups({
         <div className="table-scroll">
           <table className="matchup-table">
             <caption className="sr-only">
-              {direction} observed team matchups into {name}
+              {direction} observed team matchups into {name} teams
             </caption>
             <thead>
               <tr>
                 <th scope="col">Pokémon</th>
-                <th scope="col">Win rate</th>
-                <th scope="col">Δ baseline</th>
+                <th
+                  scope="col"
+                  aria-sort={
+                    sort === 'winRate'
+                      ? direction === 'best'
+                        ? 'descending'
+                        : 'ascending'
+                      : 'none'
+                  }
+                >
+                  <button onClick={() => setSort('winRate')}>
+                    Win rate
+                    {sort === 'winRate' &&
+                      (direction === 'best' ? (
+                        <ArrowDown size={13} />
+                      ) : (
+                        <ArrowUp size={13} />
+                      ))}
+                  </button>
+                </th>
+                <th
+                  scope="col"
+                  aria-sort={
+                    sort === 'difference'
+                      ? direction === 'best'
+                        ? 'descending'
+                        : 'ascending'
+                      : 'none'
+                  }
+                >
+                  <button onClick={() => setSort('difference')}>
+                    Change vs overall
+                    {sort === 'difference' &&
+                      (direction === 'best' ? (
+                        <ArrowDown size={13} />
+                      ) : (
+                        <ArrowUp size={13} />
+                      ))}
+                  </button>
+                </th>
                 <th scope="col">Matches</th>
               </tr>
             </thead>
@@ -660,32 +705,316 @@ function Matchup({
   row: MatchupRow;
   choose: (id: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const evidenceId = useId();
   return (
-    <tr style={rowColor(row.id)}>
-      <td>
-        <button className="pokemon-button" onClick={() => choose(row.id)}>
-          <Sprite id={row.id} />
-          {row.name}
-        </button>
-      </td>
-      <td className="numeric">
-        <strong>{pct(row.winRate)}</strong>
-      </td>
-      <td
-        className={`numeric difference ${row.difference !== null && row.difference >= 0 ? 'positive' : 'negative'}`}
-      >
-        <details className="baseline">
-          <summary>{pp(row.difference)}</summary>
-          <span>
-            Comparable overall baseline: {pct(row.baseline)}
+    <>
+      <tr>
+        <td>
+          <button className="pokemon-button" onClick={() => choose(row.id)}>
+            <Sprite id={row.id} />
+            {row.name}
+          </button>
+        </td>
+        <td className="numeric">
+          <strong>{pct(row.winRate)}</strong>
+        </td>
+        <td
+          className={`numeric difference ${row.difference !== null && row.difference >= 0 ? 'positive' : 'negative'}`}
+        >
+          <button
+            className="baseline-toggle"
+            aria-expanded={expanded}
+            aria-controls={evidenceId}
+            onClick={() => setExpanded(!expanded)}
+            aria-label={`${row.name}: ${pp(row.difference)} vs its overall win rate`}
+          >
+            {pp(row.difference)}
+          </button>
+        </td>
+        <td className="numeric muted">{number(row.matches)}</td>
+      </tr>
+      {expanded && (
+        <tr className="matchup-evidence" id={evidenceId}>
+          <td colSpan={4}>
+            {row.name} overall: {pct(row.baseline)}
+            {' · '}
+            In this matchup: {pct(row.winRate)}
+            {' · '}
+            {row.difference === null
+              ? 'Change unavailable'
+              : row.difference === 0
+                ? 'No change in win rate'
+                : `${Math.abs(row.difference).toFixed(1)} percentage points ${row.difference > 0 ? 'higher' : 'lower'}`}
             <br />
             {row.events} events · {row.players} unique players · {row.outcomes}{' '}
             team perspectives
-          </span>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+function Toolbar({
+  query,
+  setQuery,
+  sheet,
+  source,
+  official,
+  minPlayers,
+  providers,
+  onFilter,
+  reset,
+  apply,
+  appliedSheet,
+  active,
+  unavailable = false,
+}: {
+  query: string;
+  setQuery: (value: string) => void;
+  sheet: Visibility | 'all';
+  source: string;
+  official: boolean;
+  minPlayers: number;
+  providers: PublicDataset['providers'];
+  onFilter: (
+    field: 'sheet' | 'source' | 'size' | 'official',
+    value: string,
+  ) => void;
+  reset: () => void;
+  apply: () => void;
+  appliedSheet: Visibility | 'all';
+  active: boolean;
+  unavailable?: boolean;
+}) {
+  const popover = useRef<HTMLDetailsElement>(null);
+  const available = [
+    ...providers,
+    ...(source === 'all' || source === 'none'
+      ? []
+      : source
+          .split(',')
+          .filter((id) => !providers.some((p) => p.id === id))
+          .map((id) => ({ id, name: id }))),
+  ];
+  return (
+    <div className="toolbar">
+      <label className="search">
+        <Search size={17} />
+        <span className="sr-only">Search Pokémon</span>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search Pokémon…"
+        />
+        {query && (
+          <button onClick={() => setQuery('')} aria-label="Clear search">
+            <X size={15} />
+          </button>
+        )}
+      </label>
+      <div className="toolbar-right">
+        <span className="sheet-context">
+          {unavailable
+            ? 'Ladder'
+            : appliedSheet === 'all'
+              ? 'All sheets'
+              : appliedSheet === 'open'
+                ? 'OTS'
+                : 'CTS'}
+        </span>
+        <details className="filters" ref={popover}>
+          <summary>
+            <SlidersHorizontal size={15} />
+            Filters
+            {active && !unavailable && <span className="filter-dot" />}
+          </summary>
+          <div className="filter-popover">
+            <fieldset className="source-options" disabled={unavailable}>
+              <legend>Sources</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={source === 'all'}
+                  onChange={() =>
+                    onFilter('source', source === 'all' ? 'none' : 'all')
+                  }
+                />
+                All sources
+              </label>
+              {available.map((p) => (
+                <label key={p.id}>
+                  <input
+                    type="checkbox"
+                    checked={sourceMatches(source, [p.id])}
+                    onChange={() =>
+                      onFilter(
+                        'source',
+                        toggleSource(
+                          source,
+                          p.id,
+                          available.map((p) => p.id),
+                        ),
+                      )
+                    }
+                  />
+                  {p.name}
+                </label>
+              ))}
+            </fieldset>
+            {!unavailable && (
+              <>
+                <label>
+                  Events
+                  <select
+                    value={String(official)}
+                    onChange={(e) => onFilter('official', e.target.value)}
+                  >
+                    <option value="false">All</option>
+                    <option value="true">Official events</option>
+                  </select>
+                </label>
+                <label>
+                  Team sheets
+                  <select
+                    value={sheet}
+                    onChange={(e) => onFilter('sheet', e.target.value)}
+                  >
+                    <option value="all">All</option>
+                    <option value="open">OTS</option>
+                    <option value="closed">CTS</option>
+                  </select>
+                </label>
+                <label>
+                  Event size
+                  <select
+                    value={minPlayers}
+                    onChange={(e) => onFilter('size', e.target.value)}
+                  >
+                    <option value={0}>All events (20+)</option>
+                    <option value={100}>Large (100+)</option>
+                  </select>
+                </label>
+                <div className="filter-actions">
+                  <button className="text-button" onClick={reset}>
+                    Reset
+                  </button>
+                  <button
+                    className="apply-filter"
+                    onClick={() => {
+                      apply();
+                      if (popover.current) popover.current.open = false;
+                    }}
+                  >
+                    Apply Filter
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </details>
-      </td>
-      <td className="numeric muted">{number(row.matches)}</td>
-    </tr>
+      </div>
+    </div>
+  );
+}
+function BuildCards({
+  builds,
+  name,
+  choose,
+}: {
+  builds?: Builds;
+  name: string;
+  choose: (id: string) => void;
+}) {
+  if (!builds) return null;
+  return (
+    <section className="build-cards" aria-label="Registered builds">
+      {(
+        [
+          'items',
+          'moves',
+          'teammates',
+          'natures',
+          'spreads',
+          'abilities',
+        ] as const
+      )
+        .filter((field) => builds[field]?.known > 0)
+        .map((field) => {
+          const distribution = builds[field];
+          return (
+            <details
+              key={field}
+              className={`build-card ${['items', 'moves', 'teammates'].includes(field) ? 'build-card-primary' : ''}`}
+              open
+            >
+              <summary>
+                {field === 'spreads'
+                  ? 'Registered stats'
+                  : field[0].toUpperCase() + field.slice(1)}
+                <span>
+                  {field === 'teammates'
+                    ? `${number(distribution.total)} teams`
+                    : `${distribution.known} / ${distribution.total} sets`}
+                </span>
+              </summary>
+              <div className="build-content">
+                {field === 'teammates' && (
+                  <p className="build-context">% of {name} teams</p>
+                )}
+                <div
+                  className="build-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`${field === 'spreads' ? 'Registered stats' : field[0].toUpperCase() + field.slice(1)} list`}
+                >
+                  <BuildTable
+                    values={distribution.values}
+                    field={field}
+                    choose={choose}
+                  />
+                </div>
+              </div>
+            </details>
+          );
+        })}
+    </section>
+  );
+}
+function BuildTable({
+  values,
+  field,
+  choose,
+}: {
+  values: Builds['items']['values'];
+  field: string;
+  choose: (id: string) => void;
+}) {
+  return (
+    <table className="build-table">
+      <caption className="sr-only">Registered {field} distribution</caption>
+      <tbody>
+        {values.map((v) => (
+          <tr key={v.id ?? v.name}>
+            <th scope="row">
+              {field === 'teammates' && v.id ? (
+                <button
+                  className="teammate-button"
+                  aria-label={`View ${v.name} teams`}
+                  onClick={() => choose(v.id!)}
+                >
+                  <Sprite id={v.id} />
+                  {v.name}
+                </button>
+              ) : (
+                v.name
+              )}
+            </th>
+            <td>{pct(v.percent)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 function Evidence({
@@ -704,76 +1033,55 @@ function Evidence({
       </summary>
       <div className="evidence-content">
         <div>
-          <h3>What these numbers mean</h3>
           <p>
-            Usage counts each resolved team registration once, irrespective of
-            rounds played. Win rates use decisive competitive series with both
-            complete teams known. BO1 and BO3 are pooled.
+            Usage counts registered teams. Win rate shows how often teams
+            containing this Pokémon won eligible matches. Matchups compare those
+            teams against teams containing another Pokémon, with both complete
+            teams known.
           </p>
           <p>
-            Matches count unique physical series. Rates count eligible team
-            perspectives: when both teams register the row Pokémon, the series
-            contributes two perspectives and one displayed match. Overlapping
-            teams can contribute to several matchup rows. Self-matchups are
-            excluded from rankings.
-          </p>
-          <p>
-            Baseline differences are descriptive percentage points within the
-            same sheet, regulation, event-size and date cohort. They do not
-            measure direct combat or causal counter strength. Registration does
-            not establish what was brought, led, transformed or used.
-          </p>
-          <p>
-            Rankings require at least {dataset.floor.matches} matches,{' '}
-            {dataset.floor.events} events and {dataset.floor.players} distinct
-            row-side players. Sorted by raw matchup win rate. This provisional
-            floor is conservative for the initial sample; sparse rows remain
-            unranked.
+            A BO3 series counts as one match. Overlapping teams can contribute
+            to multiple comparisons. Change vs overall compares a performer’s
+            matchup win rate with its overall rate in these same filters. A
+            change from 50% to 55% is +5 percentage points. Build percentages
+            use sets with that field known; a set can include multiple moves.
+            Teammates shows the share of complete registrations containing the
+            selected Pokémon that also register each teammate; a team can
+            register multiple teammates.
           </p>
         </div>
         <div>
-          <h3>Published coverage</h3>
           <p>
-            {view.coverage.registrations} resolved registrations /{' '}
-            {view.coverage.entrants} entrants in this cohort.{' '}
-            {view.coverage.matches} eligible matches;{' '}
-            {view.coverage.excludedMatches} excluded. Exclusions retain their
-            source evidence locally.
-          </p>
-          <p>
-            {dataset.scope}. Window ends {stamp(dataset.asOf)} MT.
-          </p>
-          <p>
-            The API does not expose a general administrative-result flag.
-            Identifiable byes and nondecisive results are excluded; unmarked
-            administrative wins remain a source limitation.
-          </p>
-          <p>
-            Sheet labels are based on explicit organizer descriptions. Unknown
-            sheets remain a separate population.
+            {view.coverage.registrations} teams · {view.coverage.events} events
+            · {view.coverage.matches} matches. Saved coverage through{' '}
+            {date(dataset.asOf)}. Missing teams and unresolved results are
+            excluded. All sheets includes events with unknown sheet type.
+            Sources can have incomplete coverage.
           </p>
           <ul className="source-list">
-            {dataset.sources.map((e) => (
-              <li key={e.id}>
-                <a
-                  href={`https://play.limitlesstcg.com/tournament/${e.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {e.name}
-                  <ArrowUpRight size={12} />
-                </a>
-                <small>
-                  {e.teams} resolved teams · {e.sheet.visibility} sheets ·{' '}
-                  {e.sheet.basis}
-                </small>
-              </li>
-            ))}
+            {dataset.sources
+              .filter(
+                (e) =>
+                  e.players >= view.options.minPlayers &&
+                  (!view.options.official || e.official) &&
+                  sourceMatches(view.options.source, e.providers) &&
+                  (view.options.sheet === 'all' ||
+                    e.sheet.visibility === view.options.sheet),
+              )
+              .map((e) => (
+                <li key={e.id}>
+                  <a href={e.url} target="_blank" rel="noreferrer">
+                    {e.name}
+                  </a>
+                  <small>
+                    {e.teams} teams{e.official ? ' · Masters' : ''}
+                    {e.missingTeams > 0
+                      ? ` · ${e.missingTeams} unavailable`
+                      : ''}
+                  </small>
+                </li>
+              ))}
           </ul>
-          <p className="small muted">
-            Dataset {dataset.id} · {dataset.normalizationVersion} ·{' '}
-            {dataset.calculationVersion}
-          </p>
         </div>
       </div>
     </details>

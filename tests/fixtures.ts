@@ -19,7 +19,7 @@ export function fixture(): NormalizedEvent {
     date: '2026-09-20T12:00:00Z',
     completed: true,
     platform: 'SWITCH',
-    players: 3,
+    players: 20,
     sheet: {
       visibility: 'open',
       basis: 'verified',

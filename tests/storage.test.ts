@@ -46,3 +46,44 @@ test('a failure during pointer replacement rolls back the entire publication tra
   assert.equal(store.status()?.state, 'success');
   store.close();
 });
+
+test('All publishes unknown sheet data and excludes events below the shared entrant floor', () => {
+  const store = new Store(':memory:');
+  const open = { ...fixture(), players: 20 };
+  const unknown = {
+    ...fixture(),
+    id: 'unknown',
+    players: 100,
+    sheet: {
+      visibility: 'unknown' as const,
+      basis: 'unknown' as const,
+      evidence: '',
+    },
+  };
+  const small = { ...fixture(), id: 'small', players: 19 };
+  const d = publish(
+    store,
+    [open, unknown, small],
+    '2026-09-30T18:00:00Z',
+    'test',
+  );
+  assert.equal(d.views['all:0']?.coverage.events, 2);
+  assert.equal(d.views['all:100']?.coverage.events, 1);
+  assert.equal(d.views['open:0'].coverage.events, 1);
+  store.close();
+});
+
+test('durable versions compress cohort data and remain compatible with prior JSON publications', () => {
+  const store = new Store(':memory:');
+  const d = publish(store, [fixture()], '2026-09-30T18:00:00Z', 'test');
+  const row = store.db
+    .prepare('SELECT payload FROM versions WHERE id=?')
+    .get(d.id)!;
+  assert.ok(row.payload instanceof Uint8Array);
+  assert.deepEqual(store.current()?.views['all:0'], d.views['all:0']);
+  store.db
+    .prepare('UPDATE versions SET payload=? WHERE id=?')
+    .run(JSON.stringify(d), d.id);
+  assert.deepEqual(store.current()?.views['all:0'], d.views['all:0']);
+  store.close();
+});

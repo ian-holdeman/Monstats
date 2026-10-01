@@ -2,14 +2,14 @@
 
 The initial local draft covers the sketch-based usage/detail interface, real bounded M-C data, separate sheet populations, comparable series performance, evidence-based raw rankings, preserved snapshots/slots/quarantine, atomic SQLite publication and offline/browser verification.
 
-The owner accepted this slice on September 30, 2026. See [lessons learned](lessons-learned.md) and the [next-slice proposal](next-slice.md). Artwork reliability is the recommended next focus; implementation awaits the next slice's agreed scope.
+The owner accepted the initial draft on September 30, 2026 and subsequently approved the data slice. That slice now implements paginated Limitless coverage, Victory Road ingestion, source-aware pooled counts, All/OTS/CTS filters, build summaries and an independent local worker. See the [coverage report](data-slice.md) and [next steps](next-slice.md). Further implementation requires agreed scope.
 
 Deferred work:
 
-- Expand the audit into more complete 30-day coverage with pagination and a reviewed correction/revisit policy.
+- Extend audited official Masters coverage beyond the three integrated Regionals when accessible permitted records exist; establish a verified ladder rank/build export.
 - Improve sheet evidence and administrative-outcome detection if richer sources become available.
-- Support subsequent Champions regulations and reviewed retirement workflows.
-- Validate inexpensive registered teammate/set summaries before publishing them.
+- Verify an incoming regulation's actual source contract before enabling it through the implemented staging/activation workflow. M-D remains disabled.
+- Extend build summaries only where sources expose reliable full set fields.
 - Source a separate Champions closed-sheet ladder population.
 - Registered pairs and move/item/set-conditioned analysis, accounting for sparse evidence.
 - Modeling for repeated players, team composition, skill and event/time variation without causal claims or final-event-record leakage.

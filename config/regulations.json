@@ -1,0 +1,11 @@
+{
+  "default": "M-C",
+  "cohorts": {
+    "M-C": {
+      "enabled": true,
+      "environment": "champions-cartridge",
+      "season": "2027",
+      "evidence": "Audited explicit Limitless format and Victory Road event reports; see docs/official-coverage.md"
+    }
+  }
+}

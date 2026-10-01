@@ -2,7 +2,7 @@ import { Dex } from '@pkmn/dex';
 import { z } from 'zod';
 import { rejection } from './analytics';
 import type { NormalizedEvent, Sheet, Slot, Snapshot } from './types';
-export const NORMALIZATION_VERSION = 'limitless-champions-v1';
+export const NORMALIZATION_VERSION = 'masters-champions-v4';
 const nullableText = z.string().nullish();
 const rawSlot = z
   .object({
@@ -68,6 +68,35 @@ const aliases: Record<string, string> = {
   'Indeedee ♀': 'Indeedee-F',
   'Basculegion ♀': 'Basculegion-F',
   'Meowstic ♀': 'Meowstic-F',
+  'Arcanine [Hisuian Form]': 'Arcanine-Hisui',
+  'Floette [Eternal Flower]': 'Floette-Eternal',
+  'Indeedee [Female]': 'Indeedee-F',
+  'Meowstic [Female]': 'Meowstic-F',
+  'Zoroark [Hisuian Form]': 'Zoroark-Hisui',
+  'Maushold [Family of Four]': 'Maushold-Four',
+  'Sinistcha [Masterpiece Form]': 'Sinistcha-Masterpiece',
+  'Lycanroc [Dusk Form]': 'Lycanroc-Dusk',
+  'Rotom [Heat Rotom]': 'Rotom-Heat',
+  'Rotom [Wash Rotom]': 'Rotom-Wash',
+  'Typhlosion [Hisuian Form]': 'Typhlosion-Hisui',
+  'Goodra [Hisuian Form]': 'Goodra-Hisui',
+  'Ninetales [Alolan Form]': 'Ninetales-Alola',
+  'Persian [Alolan Form]': 'Persian-Alola',
+  'Tauros [Paldean Form - Aqua Breed]': 'Tauros-Paldea-Aqua',
+  'Avalugg [Hisuian Form]': 'Avalugg-Hisui',
+  'Toxtricity [Low Key Form]': 'Toxtricity-Low-Key',
+  'Toxtricity [Amped Form]': 'Toxtricity',
+  'Indeedee [Male]': 'Indeedee',
+  'Basculegion [Male]': 'Basculegion',
+  'Basculegion [Female]': 'Basculegion-F',
+  'Sinistcha [Unremarkable Form]': 'Sinistcha',
+  'Maushold [Family of Three]': 'Maushold',
+  'Decidueye [Hisuian Form]': 'Decidueye-Hisui',
+  'Raichu [Alolan Form]': 'Raichu-Alola',
+  'Slowbro [Galarian Form]': 'Slowbro-Galar',
+  'Squawkabilly [White Plumage]': 'Squawkabilly-White',
+  'Rotom [Mow Rotom]': 'Rotom-Mow',
+  'Samurott [Hisuian Form]': 'Samurott-Hisui',
 };
 export function normalizeSlot(input: unknown): Slot {
   const raw = rawSlot.parse(input);
@@ -173,10 +202,33 @@ export function normalizeEvent(
   };
   const registrations = z.array(z.unknown()).parse(standings),
     matches = z.array(z.unknown()).parse(pairings);
+  e.provenance = {
+    canonicalEvent: `limitless:${d.id}`,
+    participantNamespace: 'limitless',
+    environment: 'champions-cartridge',
+    official: 'unknown',
+    population: 'registrations',
+    sources: [
+      {
+        provider: 'limitless',
+        originalId: d.id,
+        url: `https://play.limitlesstcg.com/tournament/${d.id}`,
+      },
+    ],
+  };
+  e.accounting = {
+    registrations: registrations.length,
+    malformedRegistrations: 0,
+    matchRecords: matches.length,
+    duplicateMatchRecords: 0,
+    malformedMatchRecords: 0,
+    conflictingMatchRecords: 0,
+  };
   const players = new Set<string>();
   for (const input of registrations) {
     const parsed = rawRegistration.safeParse(input);
     if (!parsed.success) {
+      e.accounting.malformedRegistrations++;
       e.quarantine.push({
         kind: 'registration',
         reason: 'malformed-registration',
@@ -196,6 +248,7 @@ export function normalizeEvent(
       if (new Set(slots.map((s) => s.id)).size !== 6)
         throw new Error('Duplicate team species');
     } catch (error) {
+      slots = null;
       e.quarantine.push({
         kind: 'team',
         reason: error instanceof Error ? error.message : 'unresolved-team',
@@ -204,10 +257,14 @@ export function normalizeEvent(
     }
     e.registrations.push({ player: r.player, slots, drop: r.drop ?? null });
   }
-  const seen = new Map<string, string>();
+  const groups = new Map<
+    string,
+    { parsed: z.infer<typeof rawMatch>; evidence: unknown }[]
+  >();
   for (const input of matches) {
     const parsed = rawMatch.safeParse(input);
     if (!parsed.success) {
+      e.accounting.malformedMatchRecords++;
       e.quarantine.push({
         kind: 'match',
         reason: 'malformed-match',
@@ -218,19 +275,28 @@ export function normalizeEvent(
     const m = parsed.data;
     // Round/phase + source bracket label or unordered participants preserves rematches.
     const id = `${m.phase}:${m.round}:${m.match ?? [m.player1, m.player2 ?? 'bye'].sort().join('|')}`;
-    const encoded = JSON.stringify(m);
-    if (seen.has(id)) {
-      if (seen.get(id) !== encoded) {
-        e.matches = e.matches.filter((x) => x.id !== id);
-        e.quarantine.push({
-          kind: 'match',
-          reason: 'conflicting-duplicate',
-          evidence: [JSON.parse(seen.get(id)!), input],
-        });
-      }
+    const group = groups.get(id) ?? [];
+    group.push({ parsed: m, evidence: input });
+    groups.set(id, group);
+  }
+  for (const [id, group] of groups) {
+    const m = group[0].parsed;
+    const fact = (x: z.infer<typeof rawMatch>) =>
+      JSON.stringify({
+        participants: [x.player1, x.player2 ?? ''].sort(),
+        winner: x.winner ?? null,
+        administrative: x.administrative ?? false,
+      });
+    if (group.some((x) => fact(x.parsed) !== fact(m))) {
+      e.accounting.conflictingMatchRecords += group.length;
+      e.quarantine.push({
+        kind: 'match',
+        reason: 'conflicting-duplicate',
+        evidence: group.map((x) => x.evidence),
+      });
       continue;
     }
-    seen.set(id, encoded);
+    e.accounting.duplicateMatchRecords += group.length - 1;
     const match = {
       id,
       phase: m.phase,
@@ -241,7 +307,12 @@ export function normalizeEvent(
       administrative: m.administrative,
     };
     const reason = rejection(match, e);
-    if (reason) e.quarantine.push({ kind: 'match', reason, evidence: input });
+    if (reason)
+      e.quarantine.push({
+        kind: 'match',
+        reason,
+        evidence: group.map((x) => x.evidence),
+      });
     e.matches.push(match);
   }
   return e;

@@ -9,7 +9,7 @@ try {
   });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('http://127.0.0.1:3000');
+  await page.goto(process.env.MONSTATS_PREVIEW_URL ?? 'http://127.0.0.1:3000');
   await page.getByRole('button', { name: 'Incineroar', exact: true }).waitFor();
   await page.evaluate(async () => {
     await Promise.all([...document.images].map((i) => i.decode()));
@@ -31,6 +31,13 @@ try {
     path: '.monstats/previews/mobile.png',
     fullPage: true,
   });
+  await page.getByRole('button', { name: 'Ladder', exact: true }).click();
+  await page
+    .getByRole('heading', { name: 'No ladder data available' })
+    .waitFor();
+  await page.screenshot({ path: '.monstats/previews/ladder-mobile.png' });
+  await page.setViewportSize({ width: 1440, height: 1080 });
+  await page.screenshot({ path: '.monstats/previews/ladder.png' });
   console.log({
     errors,
     overflow: await page.evaluate(

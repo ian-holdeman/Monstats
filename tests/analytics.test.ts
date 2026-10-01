@@ -9,6 +9,62 @@ const options = {
   sheet: 'open' as const,
   minPlayers: 0,
 };
+
+test('performer ranking defaults to improvement over each Pokémon’s overall rate, with optional win-rate sorting', () => {
+  const result = aggregate([fixture()], options);
+  const template = result.matchups.incineroar[0];
+  result.matchups.incineroar = [
+    {
+      ...template,
+      id: 'high-rate',
+      name: 'High rate',
+      winRate: 80,
+      baseline: 78,
+      difference: 2,
+    },
+    {
+      ...template,
+      id: 'high-lift',
+      name: 'High lift',
+      winRate: 60,
+      baseline: 40,
+      difference: 20,
+    },
+    {
+      ...template,
+      id: 'low-lift',
+      name: 'Low lift',
+      winRate: 45,
+      baseline: 70,
+      difference: -25,
+    },
+    {
+      ...template,
+      id: 'zero',
+      name: 'Zero',
+      winRate: 0,
+      baseline: 0,
+      difference: 0,
+    },
+  ];
+  const floor = { matches: 1, events: 1, players: 1 };
+  assert.equal(
+    rankMatchups(result, 'incineroar', 'best', floor)[0].id,
+    'high-lift',
+  );
+  assert.equal(
+    rankMatchups(result, 'incineroar', 'worst', floor)[0].id,
+    'low-lift',
+  );
+  assert.equal(
+    rankMatchups(result, 'incineroar', 'best', floor, 'winRate')[0].id,
+    'high-rate',
+  );
+  assert.equal(
+    rankMatchups(result, 'incineroar', 'worst', floor, 'winRate')[0].id,
+    'zero',
+  );
+});
 test('registration usage is unweighted; series outcomes and overlap perspectives have exact rates', () => {
   const result = aggregate([fixture()], options);
   const inc = result.pokemon.find((x) => x.id === 'incineroar')!;

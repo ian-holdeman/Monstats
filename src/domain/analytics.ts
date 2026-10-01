@@ -1,12 +1,14 @@
-import type {
-  Aggregate,
-  EvidenceFloor,
-  Match,
-  NormalizedEvent,
-  Options,
-  Slot,
-} from './types';
-export const CALCULATION_VERSION = 'series-perspectives-v1';
+import type { Aggregate, Match, NormalizedEvent, Options, Slot } from './types';
+import {
+  MIN_ENTRANTS,
+  provenance,
+  reconcileSources,
+  recordProviders,
+} from './sources';
+import { buildSummaries } from './builds';
+import { sourceMatches } from './filters';
+export { rankMatchups } from './rankings';
+export const CALCULATION_VERSION = 'masters-cohort-series-v5';
 const rate = (wins: number, outcomes: number) =>
   outcomes ? (wins / outcomes) * 100 : null;
 export function rejection(match: Match, event: NormalizedEvent): string | null {
@@ -23,7 +25,12 @@ export function rejection(match: Match, event: NormalizedEvent): string | null {
       'SINGLE',
       'DOUBLE_BRACKET',
     ].includes(phase.type) ||
-    !['BO1', 'BO3'].includes(phase.mode)
+    !(
+      ['BO1', 'BO3'].includes(phase.mode) ||
+      (phase.mode === 'BO1/BO3' &&
+        provenance(event).seriesGranularity === 'round-result' &&
+        !!provenance(event).seriesEvidence)
+    )
   )
     return 'unsupported-phase';
   if (match.winner === 0) return 'tie';
@@ -43,7 +50,10 @@ export function selectEvents(events: NormalizedEvent[], options: Options) {
       e.completed &&
       !e.archived &&
       e.regulation === options.regulation &&
-      e.players >= options.minPlayers &&
+      Number.isInteger(e.players) &&
+      e.players >= Math.max(MIN_ENTRANTS, options.minPlayers) &&
+      (!options.official || provenance(e).official === 'verified') &&
+      sourceMatches(options.source, recordProviders(e)) &&
       (options.sheet === 'all' || e.sheet.visibility === options.sheet) &&
       Date.parse(e.date) >= start &&
       Date.parse(e.date) <= end,
@@ -80,7 +90,7 @@ export function aggregate(
   events: NormalizedEvent[],
   options: Options,
 ): Aggregate {
-  const selected = selectEvents(events, options);
+  const selected = selectEvents(reconcileSources(events).events, options);
   const pokemon = new Map<
     string,
     { slot: Slot; registrations: number; counter: Counter }
@@ -111,7 +121,7 @@ export function aggregate(
         continue;
       }
       matches++;
-      const key = `${event.id}:${match.id}`;
+      const key = `${provenance(event).canonicalEvent}:${match.id}`;
       for (const [own, opp, player] of [
         [left, right, match.player1],
         [right, left, match.player2!],
@@ -124,13 +134,19 @@ export function aggregate(
             match.winner === player,
             key,
             event.id,
-            player,
+            `${provenance(event).participantNamespace}:${player}`,
           );
           for (const opponent of oppIds) {
             if (!pairs.has(opponent)) pairs.set(opponent, new Map());
             const map = pairs.get(opponent)!;
             if (!map.has(id)) map.set(id, counter());
-            add(map.get(id)!, match.winner === player, key, event.id, player);
+            add(
+              map.get(id)!,
+              match.winner === player,
+              key,
+              provenance(event).canonicalEvent,
+              `${provenance(event).participantNamespace}:${player}`,
+            );
           }
         }
       }
@@ -179,10 +195,11 @@ export function aggregate(
     pokemon: rows,
     matchups,
     options,
+    builds: buildSummaries(selected),
     coverage: {
       events: selected.length,
       registrations,
-      entrants: selected.reduce((s, e) => s + e.registrations.length, 0),
+      entrants: selected.reduce((s, e) => s + e.players, 0),
       matches,
       excludedMatches,
       assumptions: selected.filter((e) => e.sheet.basis === 'assumption')
@@ -191,28 +208,4 @@ export function aggregate(
       to: dates.at(-1) ?? null,
     },
   };
-}
-export function rankMatchups(
-  result: Aggregate,
-  selected: string,
-  direction: 'best' | 'worst',
-  floor: EvidenceFloor,
-) {
-  return (result.matchups[selected] ?? [])
-    .filter(
-      (r) =>
-        r.id !== selected &&
-        r.winRate !== null &&
-        r.matches >= floor.matches &&
-        r.events >= floor.events &&
-        r.players >= floor.players,
-    )
-    .sort(
-      (a, b) =>
-        (direction === 'best'
-          ? b.winRate! - a.winRate!
-          : a.winRate! - b.winRate!) ||
-        b.matches - a.matches ||
-        a.name.localeCompare(b.name),
-    );
 }

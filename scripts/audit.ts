@@ -1,10 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { Store } from '../src/server/store';
 import { collect } from '../src/server/collector';
-await mkdir('.monstats/audit', { recursive: true });
-const store = new Store('.monstats/audit/audit.sqlite');
+import { dataDirectory } from '../src/server/paths';
+import { resolve } from 'node:path';
+const directory = resolve(dataDirectory(), 'audit');
+await mkdir(directory, { recursive: true });
+const store = new Store(resolve(directory, 'audit.sqlite'));
 try {
-  const events = await collect(store, new Date().toISOString(), 3);
+  const events = await collect(store, new Date().toISOString());
   const report = events.map((e) => ({
     id: e.id,
     name: e.name,
@@ -18,7 +21,7 @@ try {
     snapshots: e.snapshots,
   }));
   await writeFile(
-    '.monstats/audit/report.json',
+    resolve(directory, 'report.json'),
     JSON.stringify(report, null, 2),
   );
   console.log(JSON.stringify(report, null, 2));

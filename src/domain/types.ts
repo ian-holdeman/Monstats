@@ -9,6 +9,7 @@ export type Slot = {
   name: string;
   originalName: string;
   originalId: string | null;
+  originalForm?: string;
   derivedForm: string | null;
   item: string | null;
   ability: string | null;
@@ -33,6 +34,38 @@ export type Match = {
 };
 export type Quarantine = { kind: string; reason: string; evidence: unknown };
 export type Snapshot = { url: string; checksum: string; retrievedAt: string };
+export type SourceRef = {
+  provider: string;
+  originalId: string;
+  url: string;
+  role?: 'records' | 'original' | 'metadata';
+};
+export type Provenance = {
+  // Only adapters with evidenced original IDs may supply a shared canonical key.
+  canonicalEvent: string;
+  participantNamespace: string;
+  environment: 'champions-cartridge' | 'showdown' | 'aggregate-ladder';
+  official: 'verified' | 'unknown';
+  population: 'registrations' | 'published-top-teams';
+  sources: SourceRef[];
+  division?: 'masters' | 'senior' | 'junior' | 'unknown';
+  eventType?: 'regional' | 'special' | 'international';
+  season?: string;
+  roster?: 'complete' | 'supplemental' | 'selective';
+  regulationEvidence?: string;
+  divisionEvidence?: string;
+  entrantEvidence?: number[];
+  seriesGranularity?: 'round-result';
+  seriesEvidence?: string;
+};
+export type RecordAccounting = {
+  registrations: number;
+  malformedRegistrations: number;
+  matchRecords: number;
+  duplicateMatchRecords: number;
+  malformedMatchRecords: number;
+  conflictingMatchRecords: number;
+};
 export type NormalizedEvent = {
   id: string;
   name: string;
@@ -46,12 +79,15 @@ export type NormalizedEvent = {
   phases: Phase[];
   registrations: {
     player: string;
+    sourcePlayer?: string;
     slots: Slot[] | null;
     drop: number | null;
   }[];
   matches: Match[];
   quarantine: Quarantine[];
   snapshots: Snapshot[];
+  provenance?: Provenance;
+  accounting?: RecordAccounting;
 };
 export type Options = {
   regulation: string;
@@ -59,7 +95,18 @@ export type Options = {
   days: number;
   sheet: Visibility | 'all';
   minPlayers: number;
+  source?: string;
+  official?: boolean;
 };
+export type Distribution = {
+  known: number;
+  total: number;
+  values: { id?: string; name: string; count: number; percent: number }[];
+};
+export type Builds = Record<
+  'items' | 'abilities' | 'moves' | 'natures' | 'spreads' | 'teammates',
+  Distribution
+>;
 export type EvidenceFloor = {
   matches: number;
   events: number;
@@ -101,9 +148,24 @@ export type Aggregate = {
     to: string | null;
   };
   options: Options;
+  builds?: Record<string, Builds>;
+};
+export type CollectionReport = {
+  asOf: string;
+  discovery: 'complete' | 'partial';
+  apiPages: number;
+  completedPages: number;
+  listed: number;
+  completed: number;
+  refreshed: number;
+  cached: number;
+  excluded: { id: string; reason: string; evidence: unknown }[];
+  carriedForward: string[];
+  snapshots: Snapshot[];
 };
 export type PublishedDataset = {
   id: string;
+  regulation?: string;
   publishedAt: string;
   asOf: string;
   normalizationVersion: string;
@@ -112,6 +174,8 @@ export type PublishedDataset = {
   events: NormalizedEvent[];
   views: Record<string, Aggregate>;
   floor: EvidenceFloor;
+  collection?: CollectionReport;
+  quarantine?: Quarantine[];
 };
 export type RefreshState = {
   state: 'success' | 'failure';

@@ -1,15 +1,17 @@
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import { Dex } from '@pkmn/dex';
 import { Store } from '../src/server/store';
-await mkdir('.monstats/sprites', { recursive: true });
-const store = new Store('.monstats/monstats.sqlite', true);
+import { databasePath, dataDirectory } from '../src/server/paths';
+import { resolve } from 'node:path';
+await mkdir(resolve(dataDirectory(), 'sprites'), { recursive: true });
+const store = new Store(databasePath(), true);
 const dataset = store.current();
 store.close();
 if (!dataset) throw new Error('Publish a dataset before caching artwork');
 let downloaded = 0,
   missing = 0;
-for (const row of dataset.views['open:0'].pokemon) {
-  const path = `.monstats/sprites/${row.id}.png`;
+for (const row of (dataset.views['all:0'] ?? dataset.views['open:0']).pokemon) {
+  const path = resolve(dataDirectory(), `sprites/${row.id}.png`);
   try {
     await access(path);
     continue;

@@ -6,6 +6,7 @@ import {
   completedIds,
   classifySheet,
 } from '../src/domain/normalize';
+import { reconcileRecords } from '../src/domain/reconciliation';
 const details = {
   id: 'aaaaaaaaaaaaaaaaaaaaaaaa',
   game: 'VGC',
@@ -74,6 +75,10 @@ test('malformed records and conflicting duplicate outcomes cannot become eligibl
   assert.equal(event.matches[0].round, 2);
   assert.ok(event.quarantine.some((x) => x.reason === 'conflicting-duplicate'));
   assert.ok(event.quarantine.some((x) => x.reason === 'malformed-match'));
+  const report = reconcileRecords(event);
+  assert.equal(report.representedMatchRecords, 5);
+  assert.equal(report.accounting?.conflictingMatchRecords, 3);
+  assert.equal(report.accounting?.malformedMatchRecords, 1);
 });
 test('incomplete or unresolved teams are retained as unavailable rather than partial memberships', () => {
   const e = normalizeEvent(
@@ -86,6 +91,27 @@ test('incomplete or unresolved teams are retained as unavailable rather than par
   );
   assert.equal(e.registrations[0].slots, null);
   assert.equal(e.quarantine.length, 1);
+});
+
+test('a six-slot registration with duplicate canonical species is unavailable as a whole', () => {
+  const team = [
+    'Incineroar',
+    'Incineroar',
+    'Rillaboom',
+    'Sneasler',
+    'Garchomp',
+    'Pelipper',
+  ].map((name) => ({ name }));
+  const e = normalizeEvent(
+    details,
+    [{ player: 'a', decklist: team }],
+    [],
+    { visibility: 'unknown', basis: 'unknown', evidence: '' },
+    [],
+    true,
+  );
+  assert.equal(e.registrations[0].slots, null);
+  assert.ok(e.quarantine.some((q) => /Duplicate team species/.test(q.reason)));
 });
 test('completion links must match exactly; public submission alone does not prove OTS', () => {
   const html =

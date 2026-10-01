@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+.monstats/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.env*
+!.env.example
+AGENTS.md
+docs/internal/
+artifacts/

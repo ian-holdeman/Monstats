@@ -15,9 +15,11 @@ parentPort.on('message', ({path, sql, values}) => {
     const grouped = new Map();
     for (const p of db.prepare(sql).iterate(...values)) {
       let c = grouped.get(p.composition);
-      if (!c) { c = {wins:0,outcomes:0,matches:new Set(),events:new Set(),players:new Set()}; grouped.set(p.composition,c); }
+      if (!c) { c = {wins:0,outcomes:0,matches:new Set(),events:new Set(),players:new Set(),matchEvents:new Map(),eventSources:new Map()}; grouped.set(p.composition,c); }
       c.wins += p.win; c.outcomes++;
       c.matches.add(p.physical); c.events.add(p.canonical); c.players.add(p.participant);
+      c.matchEvents.set(p.physical,p.canonical);
+      c.eventSources.set(p.canonical,(p.providers || '').split(',').filter(Boolean));
     }
     parentPort.postMessage({grouped});
   } catch (e) { parentPort.postMessage({error:e.message}); }

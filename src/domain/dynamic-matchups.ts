@@ -1,5 +1,10 @@
 import type { EvidenceFloor, Options } from './types';
 import { sourceSelection } from './filters';
+import {
+  performanceEvidence,
+  evidenceOrder,
+  type PerformanceEvidence,
+} from './evidence';
 
 export const MATCHUP_CALCULATION = 'joint-perspectives-v1';
 export const MATCHUP_INDEX = 'members-results-v2';
@@ -8,7 +13,7 @@ export type MatchupRequest = {
   a: string[];
   b: string[];
   candidateSize: number;
-  sort: 'difference' | 'winRate';
+  sort: 'difference' | 'winRate' | 'evidence';
   direction: 'best' | 'worst';
   offset: number;
   limit: number;
@@ -16,8 +21,10 @@ export type MatchupRequest = {
   sheet: Options['sheet'];
   minPlayers: number;
   official: boolean;
+  hideNotices?: boolean;
 };
 export type Sample = {
+  evidence?: PerformanceEvidence;
   wins: number;
   losses: number;
   outcomes: number;
@@ -65,8 +72,8 @@ export function validateMatchupRequest(
     !Number.isInteger(q.candidateSize) ||
     q.candidateSize < 1 ||
     q.candidateSize > 6 ||
-    !['difference', 'winRate'].includes(q.sort) ||
-    (!b.length && q.sort !== 'winRate') ||
+    !['difference', 'winRate', 'evidence'].includes(q.sort) ||
+    (!b.length && q.sort === 'difference') ||
     !['best', 'worst'].includes(q.direction) ||
     !Number.isInteger(q.offset) ||
     q.offset < 0 ||
@@ -77,6 +84,7 @@ export function validateMatchupRequest(
     !['all', 'open', 'closed', 'unknown'].includes(q.sheet) ||
     ![0, 100].includes(q.minPlayers) ||
     typeof q.official !== 'boolean' ||
+    (q.hideNotices !== undefined && typeof q.hideNotices !== 'boolean') ||
     typeof q.source !== 'string'
   )
     throw new Error('Invalid matchup request');
@@ -90,6 +98,7 @@ export function validateMatchupRequest(
     sheet: q.sheet,
     minPlayers: q.minPlayers,
     official: q.official,
+    ...(q.hideNotices !== undefined ? { hideNotices: q.hideNotices } : {}),
     a: q.mode === 'discover' ? [] : a,
     b,
     source: sourceSelection(q.source),
@@ -109,6 +118,8 @@ export function subsets(members: string[], size: number): string[][] {
   return result;
 }
 export type Counter = {
+  matchEvents?: Map<string, string>;
+  eventSources?: Map<string, string[]>;
   wins: number;
   outcomes: number;
   matches: Set<string>;
@@ -116,6 +127,8 @@ export type Counter = {
   players: Set<string>;
 };
 export const counter = (): Counter => ({
+  matchEvents: new Map(),
+  eventSources: new Map(),
   wins: 0,
   outcomes: 0,
   matches: new Set(),
@@ -131,6 +144,11 @@ export function sample(c: Counter): Sample {
     matches: c.matches.size,
     events: c.events.size,
     players: c.players.size,
+    ...(c.matchEvents
+      ? {
+          evidence: performanceEvidence(c.matchEvents, c.eventSources),
+        }
+      : {}),
   };
 }
 export function sufficient(s: Sample, floor: EvidenceFloor) {
@@ -161,6 +179,19 @@ export function combinationRow(
   };
 }
 export function rankCombinations(rows: CombinationRow[], q: MatchupRequest) {
+  if (q.sort === 'evidence')
+    return evidenceOrder(
+      rows.filter(
+        (r) =>
+          r.sufficient &&
+          r.sample.winRate !== null &&
+          (!q.b.length || r.key !== q.b.join('+')),
+      ),
+      (r) => r.sample.evidence,
+      (r) => r.key,
+      (r) => r.sample.matches,
+      (r) => r.sample.events,
+    );
   const value = (r: CombinationRow) =>
     q.sort === 'difference' ? r.difference! : r.sample.winRate!;
   return rows

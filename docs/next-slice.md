@@ -1,5 +1,7 @@
 # Next slice
 
+The data-integrity slice is completed and accepted as of October 1, 2026. It adds discreet sample notices, event/source evidence, Most evidence ordering and an explicit Apply checkbox to hide entries with notices. Unverifiable player-breadth metrics are omitted. Raw statistics and immutable publications are preserved. The [evidence contract](evidence-context.md) records definitions, versioned backfill, filter behavior and verification.
+
 The dynamic matchup calculator is completed and accepted as of October 1, 2026. It supports observed tournament performance for one to six registered Pokémon on either side, direct and overall comparisons, and best/worst combination discovery. Clearing and navigation cleanup are included. The [calculation contract and implementation report](dynamic-matchups.md) records behavior, reproduction, evidence rules and local benchmark results; [reusable lessons](lessons-learned.md) cover calculation, indexing and interface decisions.
 
 The owner will prepare the next slice. No further implementation scope has been agreed. Hosting and deployment remain deferred.

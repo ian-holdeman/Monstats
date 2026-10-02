@@ -1,7 +1,11 @@
 // Deliberately simple oracle: scan each physical result for each candidate.
 // No indexed membership, composition grouping, batched baselines or production counters.
 import { rejection, selectEvents } from '../src/domain/analytics';
-import { reconcileSources, provenance } from '../src/domain/sources';
+import {
+  reconcileSources,
+  provenance,
+  recordProviders,
+} from '../src/domain/sources';
 import type { PublishedDataset } from '../src/domain/types';
 import type {
   CombinationRow,
@@ -21,6 +25,7 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
     match: string;
     event: string;
     player: string;
+    providers: string[];
   }[] = [];
   for (const e of events) {
     const seen = new Set<string>();
@@ -41,6 +46,7 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
           match: `${provenance(e).canonicalEvent}:${m.id}`,
           event: provenance(e).canonicalEvent,
           player: `${provenance(e).participantNamespace}:${p}`,
+          providers: recordProviders(e),
         });
     }
   }
@@ -59,6 +65,15 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
     }
   const count = (ps: typeof perspectives): Sample => {
     const wins = ps.filter((p) => p.win).length;
+    const physical = new Set(ps.map((p) => p.match));
+    const eventIds = [...new Set(ps.map((p) => p.event))];
+    const largest = Math.max(
+      0,
+      ...eventIds.map(
+        (id) =>
+          new Set(ps.filter((p) => p.event === id).map((p) => p.match)).size,
+      ),
+    );
     return {
       wins,
       losses: ps.length - wins,
@@ -67,6 +82,24 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
       matches: new Set(ps.map((p) => p.match)).size,
       events: new Set(ps.map((p) => p.event)).size,
       players: new Set(ps.map((p) => p.player)).size,
+      evidence: {
+        sources: [...new Set(ps.flatMap((p) => p.providers))]
+          .sort()
+          .map((provider) => ({
+            provider,
+            matches: new Set(
+              ps
+                .filter((p) => p.providers.includes(provider))
+                .map((p) => p.match),
+            ).size,
+          })),
+        version: 'evidence-context-v2',
+        matches: physical.size,
+        events: eventIds.length,
+        largestEventShare: physical.size
+          ? (largest / physical.size) * 100
+          : null,
+      },
     };
   };
   let rows: CombinationRow[] = [...candidates].map(([key, members]) => {
@@ -97,6 +130,12 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
           (!q.b.length || r.key !== [...q.b].sort().join('+')),
       )
       .sort((a, b) => {
+        if (q.sort === 'evidence')
+          return (
+            b.sample.matches - a.sample.matches ||
+            b.sample.events - a.sample.events ||
+            (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+          );
         const av = q.sort === 'difference' ? a.difference! : a.sample.winRate!,
           bv = q.sort === 'difference' ? b.difference! : b.sample.winRate!;
         return (
@@ -105,5 +144,10 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
           (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
         );
       });
+  if (q.hideNotices)
+    rows = rows.filter(
+      (r) =>
+        r.sample.matches >= 100 && (!q.b.length || r.overall.matches >= 100),
+    );
   return { rows: rows.slice(q.offset, q.offset + q.limit), total: rows.length };
 }

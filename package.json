@@ -26,6 +26,7 @@
     "regulation:activate": "tsx scripts/activate.ts",
     "trace": "tsx scripts/trace.ts",
     "matchups:backfill": "tsx scripts/backfill-matchups.ts",
+    "evidence:backfill": "tsx scripts/backfill-evidence.ts",
     "matchups:benchmark": "tsx scripts/benchmark-matchups.ts"
   },
   "dependencies": {

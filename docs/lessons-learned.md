@@ -1,5 +1,14 @@
 # Initial draft lessons
 
+## Evidence context slice
+
+- Treat sample volume and ranking eligibility as separate facts. A source participant ID is insufficient proof of a distinct human across events or providers; omit unverifiable human-breadth metrics.
+- Share notice rules between icons and the visibility filter. Filter before pagination or top-three selection, preserving raw metrics and cohort denominators. Apply and Reset retain their established explicit behavior, including retries after failed reads.
+- Reapplying identical filter values must retry a failed read. Depending only on changed scalar values can silently remove that recovery path; preserve an explicit Apply signal and cover failure followed by reapply in browser tests.
+- Keep shared limitations at their table or cohort scope. Use compact information controls for affected statistics and put source composition, event concentration and separate baseline counts behind deliberate interaction.
+- Calculate shared baseline metadata once. Profile real-data cold reads before accepting a browser-time supplement; versioned explicit atomic backfill preserves responsive browsing and immutable source publications.
+- Tooltip focus can trigger scrolling. Reposition focused disclosures instead of closing them during the resulting scroll, support hover over their content, and check tap behavior in horizontally scrollable narrow tables.
+
 The owner accepted the initial draft on September 30, 2026. This slice established tournament usage and matchup browsing with real, bounded source coverage and durable local publications.
 
 ## Design

@@ -26,6 +26,60 @@ const request: MatchupRequest = {
   minPlayers: 0,
   official: false,
 };
+test('notice filter runs before pagination and preserves raw comparisons and floor', async () => {
+  const store = new Store(':memory:');
+  try {
+    const event = fixture();
+    event.matches = Array.from({ length: 100 }, (_, i) => ({
+      ...event.matches[0],
+      id: `physical-${i}`,
+    }));
+    event.matches.push({ ...fixture().matches[1], id: 'sparse' });
+    const original = publish(store, [event], asOf, 'notice fixture');
+    const d = { ...original, id: 'notice-pagination', floor };
+    store.commit(d);
+    const q = {
+      ...request,
+      mode: 'discover' as const,
+      b: [],
+      sort: 'winRate' as const,
+      direction: 'worst' as const,
+      limit: 1,
+    };
+    const raw = await queryMatchups(store.db, d.id, { ...q, limit: 50 });
+    const eligible = raw.rows.filter((r) => r.sample.matches >= 100);
+    assert.ok(eligible.length > 1);
+    assert.ok(eligible.length < raw.total);
+    for (let offset = 0; offset < eligible.length; offset++) {
+      const hidden = await queryMatchups(store.db, d.id, {
+        ...q,
+        hideNotices: true,
+        offset,
+      });
+      assert.equal(hidden.total, eligible.length);
+      assert.deepEqual(hidden.rows, [eligible[offset]]);
+    }
+    const sparse = {
+      ...request,
+      a: ['garchomp'],
+      b: [],
+      sort: 'winRate' as const,
+    };
+    assert.equal((await queryMatchups(store.db, d.id, sparse)).rows.length, 1);
+    assert.equal(
+      (await queryMatchups(store.db, d.id, { ...sparse, hideNotices: true }))
+        .total,
+      0,
+    );
+    assert.deepEqual(
+      (await queryMatchups(store.db, d.id, sparse)).rows,
+      (await queryMatchups(store.db, d.id, { ...sparse, hideNotices: false }))
+        .rows,
+    );
+  } finally {
+    store.close();
+  }
+});
 function sixes() {
   const e = fixture();
   e.registrations[0].slots = [
@@ -118,8 +172,8 @@ test('indexed engine matches independent reference across sizes, modes, filters 
         ])
           for (const direction of ['best', 'worst'] as const)
             for (const sort of b.length
-              ? (['difference', 'winRate'] as const)
-              : (['winRate'] as const)) {
+              ? (['difference', 'winRate', 'evidence'] as const)
+              : (['winRate', 'evidence'] as const)) {
               const q = {
                 ...request,
                 mode,

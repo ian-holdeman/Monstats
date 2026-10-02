@@ -641,7 +641,7 @@
     min-width: 0;
   }
   .matchup-table th:first-child {
-    width: 42%;
+    width: 38%;
   }
   .matchup-table th:nth-child(2) {
     width: 17%;

@@ -1,3 +1,4 @@
+import type { PerformanceEvidence } from './evidence';
 export type Visibility = 'open' | 'closed' | 'unknown';
 export type Sheet = {
   visibility: Visibility;
@@ -113,6 +114,7 @@ export type EvidenceFloor = {
   players: number;
 };
 export type PokemonRow = {
+  evidence?: PerformanceEvidence;
   id: string;
   name: string;
   registrations: number;
@@ -123,6 +125,8 @@ export type PokemonRow = {
   winRate: number | null;
 };
 export type MatchupRow = {
+  evidence?: PerformanceEvidence;
+  baselineEvidence?: PerformanceEvidence;
   id: string;
   name: string;
   wins: number;

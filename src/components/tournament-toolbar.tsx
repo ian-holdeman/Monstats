@@ -19,6 +19,7 @@ export function Toolbar({
   active,
   unavailable = false,
   hideSearch = false,
+  hideNotices = false,
 }: {
   query: string;
   setQuery: (value: string) => void;
@@ -26,9 +27,10 @@ export function Toolbar({
   source: string;
   official: boolean;
   minPlayers: number;
+  hideNotices?: boolean;
   providers: PublicDataset['providers'];
   onFilter: (
-    field: 'sheet' | 'source' | 'size' | 'official',
+    field: 'sheet' | 'source' | 'size' | 'official' | 'hideNotices',
     value: string,
   ) => void;
   reset: () => void;
@@ -147,6 +149,16 @@ export function Toolbar({
                     <option value={0}>All events (20+)</option>
                     <option value={100}>Large (100+)</option>
                   </select>
+                </label>
+                <label className="notice-filter">
+                  <input
+                    type="checkbox"
+                    checked={hideNotices}
+                    onChange={(e) =>
+                      onFilter('hideNotices', String(e.target.checked))
+                    }
+                  />
+                  Hide entries with data notices
                 </label>
                 <div className="filter-actions">
                   <button className="text-button" onClick={reset}>

@@ -1,3 +1,4 @@
+import { performanceReasons } from '../domain/evidence';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { eligibleResult, selectEvents } from '../domain/analytics';
 import {
@@ -190,6 +191,7 @@ export function backfillMatchups(db: DatabaseSync, d: PublishedDataset) {
   }
 }
 type Perspective = {
+  providers: string;
   physical: string;
   canonical: string;
   participant: string;
@@ -236,10 +238,10 @@ export function perspectiveQuery(
   };
   if (q.mode === 'compare') intersection(q.a, 'own');
   if (restrict) intersection(q.b, 'opp');
-  const sql = `WITH cohort AS (SELECT e.event,e.canonical FROM matchup_events e WHERE ${where}), perspectives AS (
-    SELECT r.physical,c.canonical,r.left_team own,r.right_team opp,(r.winner=r.left_team) win FROM cohort c JOIN matchup_results r ON r.version=? AND r.event=c.event
-    UNION ALL SELECT r.physical,c.canonical,r.right_team own,r.left_team opp,(r.winner=r.right_team) win FROM cohort c JOIN matchup_results r ON r.version=? AND r.event=c.event
-  ) SELECT p.physical,p.canonical,t.participant,t.composition,p.win FROM perspectives p JOIN matchup_teams t ON t.id=p.own ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}`;
+  const sql = `WITH cohort AS (SELECT e.event,e.canonical,(SELECT group_concat(s.provider, ',') FROM matchup_sources s WHERE s.version=e.version AND s.event=e.event) providers FROM matchup_events e WHERE ${where}), perspectives AS (
+    SELECT r.physical,c.canonical,c.providers,r.left_team own,r.right_team opp,(r.winner=r.left_team) win FROM cohort c JOIN matchup_results r ON r.version=? AND r.event=c.event
+    UNION ALL SELECT r.physical,c.canonical,c.providers,r.right_team own,r.left_team opp,(r.winner=r.right_team) win FROM cohort c JOIN matchup_results r ON r.version=? AND r.event=c.event
+  ) SELECT p.physical,p.canonical,p.providers,t.participant,t.composition,p.win FROM perspectives p JOIN matchup_teams t ON t.id=p.own ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}`;
   return { sql, values };
 }
 function groups(rows: Perspective[]) {
@@ -253,6 +255,11 @@ function groups(rows: Perspective[]) {
     c.wins += p.win;
     c.outcomes++;
     c.matches.add(p.physical);
+    c.matchEvents!.set(p.physical, p.canonical);
+    c.eventSources!.set(
+      p.canonical,
+      (p.providers ?? '').split(',').filter(Boolean),
+    );
     c.events.add(p.canonical);
     c.players.add(p.participant);
   }
@@ -264,6 +271,10 @@ function merge(to: Counter, from: Counter) {
   for (const id of from.matches) to.matches.add(id);
   for (const id of from.events) to.events.add(id);
   for (const id of from.players) to.players.add(id);
+  for (const [id, event] of from.matchEvents ?? [])
+    to.matchEvents!.set(id, event);
+  for (const [event, providers] of from.eventSources ?? [])
+    to.eventSources!.set(event, providers);
 }
 export async function queryMatchups(
   db: DatabaseSync,
@@ -353,6 +364,21 @@ export async function queryMatchups(
       q,
     );
   }
+  if (q.hideNotices)
+    rows = rows.filter(
+      (r) =>
+        !performanceReasons({
+          evidence: r.sample.evidence,
+          matches: r.sample.matches,
+          ...(q.b.length
+            ? {
+                baseline: r.overall.evidence,
+                baselineMatches: r.overall.matches,
+                compareBaseline: true,
+              }
+            : {}),
+        }).length,
+    );
   const { options, physicalResults, teams, ...publicMeta } = meta;
   void options;
   void physicalResults;

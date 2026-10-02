@@ -3,6 +3,7 @@ import { databasePath } from '@/server/paths';
 import { Store } from '@/server/store';
 import { publicDataset } from '@/server/reader';
 import { sourceSelection } from '@/domain/filters';
+import { EVIDENCE_VERSION } from '@/domain/evidence';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -30,10 +31,24 @@ export async function GET(
   try {
     const d = store.version(id);
     if (!d) return new Response(null, { status: 404 });
-    const output = publicDataset(d, source, sheet, size, official === 'true');
+    const output = publicDataset(
+      d,
+      source,
+      sheet,
+      size,
+      official === 'true',
+      store.db,
+    );
+    const readyEvidence = Object.values(output.views).every((v) =>
+      v.pokemon.every((r) => r.evidence?.version === EVIDENCE_VERSION),
+    );
     // A provider can disappear from a new publication. The saved selection gets an honest empty cohort.
     return Response.json(output, {
-      headers: { 'Cache-Control': 'private, max-age=31536000, immutable' },
+      headers: {
+        'Cache-Control': readyEvidence
+          ? 'private, max-age=31536000, immutable'
+          : 'private, no-store',
+      },
     });
   } catch {
     return new Response(null, { status: 503 });

@@ -31,6 +31,18 @@ import { rowColor } from './pokemon-color';
 import { StatSpread } from './stat-spread';
 import { DynamicMatchups } from './dynamic-matchups';
 import { Toolbar } from './tournament-toolbar';
+import {
+  QualityInfo,
+  PerformanceInfo,
+  EvidenceDetails,
+  evidenceSortHelp,
+} from './evidence-context';
+import {
+  EVIDENCE_VERSION,
+  sampleReasons,
+  performanceReasons,
+  evidenceOrder,
+} from '@/domain/evidence';
 const pct = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
 const pp = (n: number | null) =>
   n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)} points`;
@@ -39,6 +51,7 @@ const defaultFilters = {
   source: 'all',
   official: false,
   minPlayers: 0,
+  hideNotices: false,
 };
 const number = (n: number) => n.toLocaleString('en-US');
 const date = (s: string) =>
@@ -113,11 +126,15 @@ export function Explorer({
   }>({ a: [], b: [] });
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
-  const { sheet, source, official, minPlayers } = filters;
+  const { sheet, source, official, minPlayers, hideNotices } = filters;
   const filtersActive =
-    sheet !== 'all' || source !== 'all' || official || minPlayers > 0;
+    sheet !== 'all' ||
+    source !== 'all' ||
+    official ||
+    minPlayers > 0 ||
+    hideNotices;
   function editFilter(
-    field: 'sheet' | 'source' | 'size' | 'official',
+    field: 'sheet' | 'source' | 'size' | 'official' | 'hideNotices',
     value: string,
   ) {
     setDraftFilters((d) => ({
@@ -126,9 +143,11 @@ export function Explorer({
         ? { sheet: value as Visibility | 'all' }
         : field === 'source'
           ? { source: value }
-          : field === 'official'
-            ? { official: value === 'true' }
-            : { minPlayers: Number(value) }),
+          : field === 'hideNotices'
+            ? { hideNotices: value === 'true' }
+            : field === 'official'
+              ? { official: value === 'true' }
+              : { minPlayers: Number(value) }),
     }));
   }
   const [query, setQuery] = useState('');
@@ -168,7 +187,7 @@ export function Explorer({
         const next = requestedDataset.views[key]
           ? requestedDataset
           : await fetch(
-              `/data/${encodeURIComponent(requestedDataset.id)}?${new URLSearchParams({ source, sheet, size: String(minPlayers), official: String(official) })}`,
+              `/data/${encodeURIComponent(requestedDataset.id)}?${new URLSearchParams({ source, sheet, size: String(minPlayers), official: String(official), evidence: EVIDENCE_VERSION })}`,
               { signal: controller.signal },
             ).then((r) => {
               if (!r.ok) throw new Error('Cached cohort unavailable');
@@ -192,24 +211,36 @@ export function Explorer({
   }, [requestedDataset?.id, filters, tab]);
   const dataset = requestedDataset ? loadedDataset : null;
   const view = dataset ? (Object.values(dataset.views)[0] ?? null) : null;
-  const pokemon = view?.pokemon.find((r) => r.id === selected);
-  const filtered = (view?.pokemon ?? []).filter((r) =>
-    r.name.toLowerCase().includes(query.toLowerCase().trim()),
+  const pokemon = view?.pokemon.find(
+    (r) => r.id === selected && (!hideNotices || !performanceReasons(r).length),
   );
-  const rows = [...filtered].sort((a, b) => {
-    const av = a[sort.key],
-      bv = b[sort.key];
-    if (av === null) return bv === null ? 0 : 1;
-    if (bv === null) return -1;
-    const difference =
-      typeof av === 'string'
-        ? av.localeCompare(String(bv))
-        : Number(av) - Number(bv);
-    return (
-      (sort.direction === 'asc' ? difference : -difference) ||
-      a.name.localeCompare(b.name)
-    );
-  });
+  const filtered = (view?.pokemon ?? []).filter(
+    (r) =>
+      r.name.toLowerCase().includes(query.toLowerCase().trim()) &&
+      (!hideNotices || !performanceReasons(r).length),
+  );
+  const rows =
+    sort.key === 'matches' && sort.direction === 'desc'
+      ? evidenceOrder(
+          filtered,
+          (r) => r.evidence,
+          (r) => r.id,
+          (r) => r.matches,
+        )
+      : [...filtered].sort((a, b) => {
+          const av = a[sort.key],
+            bv = b[sort.key];
+          if (av === null) return bv === null ? 0 : 1;
+          if (bv === null) return -1;
+          const difference =
+            typeof av === 'string'
+              ? av.localeCompare(String(bv))
+              : Number(av) - Number(bv);
+          return (
+            (sort.direction === 'asc' ? difference : -difference) ||
+            a.name.localeCompare(b.name)
+          );
+        });
   useEffect(() => {
     if (selected) heading.current?.focus();
     else if (openerId.current) buttons.current.get(openerId.current)?.focus();
@@ -229,7 +260,12 @@ export function Explorer({
   function changeSort(key: typeof sort.key) {
     setSort((s) => ({
       key,
-      direction: s.key === key && s.direction === 'desc' ? 'asc' : 'desc',
+      direction:
+        key === 'matches'
+          ? 'desc'
+          : s.key === key && s.direction === 'desc'
+            ? 'asc'
+            : 'desc',
     }));
   }
   return (
@@ -372,8 +408,19 @@ export function Explorer({
                 providers={dataset.providers}
                 onFilter={editFilter}
                 reset={() => setDraftFilters(defaultFilters)}
-                apply={() => setFilters({ ...draftFilters })}
+                apply={() => {
+                  setFilters({ ...draftFilters });
+                  if (
+                    draftFilters.hideNotices &&
+                    pokemon &&
+                    performanceReasons(pokemon).length
+                  )
+                    setSelected(null);
+                }}
               />
+              {hideNotices && (
+                <p className="small muted">Entries with data notices hidden</p>
+              )}
               {cohortError && (
                 <p role="status" className="small muted">
                   These filters couldn’t be loaded. Saved results are still
@@ -433,7 +480,16 @@ export function Explorer({
                     </div>
                     <div className="detail-metrics">
                       <div>
-                        <span>Usage</span>
+                        <span>
+                          Usage
+                          <QualityInfo
+                            label="Usage population"
+                            reasons={sampleReasons(
+                              view.coverage.registrations,
+                              'usage',
+                            )}
+                          />
+                        </span>
                         <strong>{pct(pokemon.usage)}</strong>
                         <small>
                           {number(pokemon.registrations)} registered teams
@@ -441,7 +497,14 @@ export function Explorer({
                       </div>
                       <div>
                         <span>Overall win rate</span>
-                        <strong>{pct(pokemon.winRate)}</strong>
+                        <strong>
+                          {pct(pokemon.winRate)}
+                          <PerformanceInfo
+                            label={`${pokemon.name} overall win rate`}
+                            evidence={pokemon.evidence}
+                            matches={pokemon.matches}
+                          />
+                        </strong>
                         <small>
                           {number(pokemon.matches)} eligible matches
                         </small>
@@ -482,6 +545,7 @@ export function Explorer({
                       name={pokemon.name}
                       view={view}
                       dataset={dataset}
+                      hideNotices={hideNotices}
                       direction="best"
                       choose={(id) => {
                         const row = view.pokemon.find((r) => r.id === id);
@@ -493,6 +557,7 @@ export function Explorer({
                       name={pokemon.name}
                       view={view}
                       dataset={dataset}
+                      hideNotices={hideNotices}
                       direction="worst"
                       choose={(id) => {
                         const row = view.pokemon.find((r) => r.id === id);
@@ -502,7 +567,18 @@ export function Explorer({
                   </div>
                 </div>
               ) : !rows.length ? (
-                <Empty title="No Pokémon found">
+                <Empty
+                  title={
+                    hideNotices
+                      ? 'No Pokémon match these filters'
+                      : 'No Pokémon found'
+                  }
+                >
+                  {hideNotices && (
+                    <p>
+                      Change the data notice filter, then select Apply Filter.
+                    </p>
+                  )}
                   <p>
                     Try another name or{' '}
                     <button
@@ -545,7 +621,7 @@ export function Explorer({
                                     ? 'Usage'
                                     : key === 'winRate'
                                       ? 'Overall win rate'
-                                      : 'Matches'}
+                                      : 'Most evidence'}
                                 {sort.key === key ? (
                                   sort.direction === 'desc' ? (
                                     <ArrowDown size={13} />
@@ -554,6 +630,15 @@ export function Explorer({
                                   )
                                 ) : null}
                               </button>
+                              {key === 'usage' && (
+                                <QualityInfo
+                                  label="Usage population"
+                                  reasons={sampleReasons(
+                                    view.coverage.registrations,
+                                    'usage',
+                                  )}
+                                />
+                              )}
                             </th>
                           ),
                         )}
@@ -594,7 +679,14 @@ export function Explorer({
                               </span>
                             </div>
                           </td>
-                          <td className="numeric">{pct(r.winRate)}</td>
+                          <td className="numeric">
+                            {pct(r.winRate)}
+                            <PerformanceInfo
+                              label={`${r.name} overall win rate`}
+                              evidence={r.evidence}
+                              matches={r.matches}
+                            />
+                          </td>
                           <td className="numeric muted">{number(r.matches)}</td>
                           <td>
                             <ChevronRight
@@ -616,7 +708,9 @@ export function Explorer({
                 <span>Partial tournament sample</span>
               </div>
             </section>
-            {view && <Evidence dataset={dataset} view={view} />}
+            {view && (
+              <Evidence dataset={dataset} view={view} pokemon={pokemon} />
+            )}
           </>
         )}
       </main>
@@ -629,6 +723,7 @@ function Matchups({
   view,
   dataset,
   direction,
+  hideNotices,
   choose,
 }: {
   selected: string;
@@ -636,11 +731,30 @@ function Matchups({
   view: Aggregate;
   dataset: PublicDataset;
   direction: 'best' | 'worst';
+  hideNotices: boolean;
   choose: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [sort, setSort] = useState<'difference' | 'winRate'>('difference');
-  const all = rankMatchups(view, selected, direction, dataset.floor, sort),
+  const [sort, setSort] = useState<'difference' | 'winRate' | 'evidence'>(
+    'difference',
+  );
+  const all = rankMatchups(
+      view,
+      selected,
+      direction,
+      dataset.floor,
+      sort,
+    ).filter(
+      (r) =>
+        !hideNotices ||
+        !performanceReasons({
+          evidence: r.evidence,
+          matches: r.matches,
+          baseline: r.baselineEvidence,
+          baselineMatches: view.pokemon.find((p) => p.id === r.id)?.matches,
+          compareBaseline: true,
+        }).length,
+    ),
     rows = expanded ? all : all.slice(0, 3);
   return (
     <section
@@ -665,7 +779,9 @@ function Matchups({
       </div>
       {!rows.length ? (
         <p className="matchup-empty">
-          No matchups meet the evidence floor in this cohort.
+          {hideNotices
+            ? 'No matchups meet the evidence floor and data notice filter in this cohort.'
+            : 'No matchups meet the evidence floor in this cohort.'}
         </p>
       ) : (
         <div className="table-scroll">
@@ -716,12 +832,27 @@ function Matchups({
                       ))}
                   </button>
                 </th>
-                <th scope="col">Matches</th>
+                <th
+                  scope="col"
+                  aria-sort={sort === 'evidence' ? 'descending' : 'none'}
+                >
+                  <button onClick={() => setSort('evidence')}>
+                    Most evidence
+                    {sort === 'evidence' && <ArrowDown size={13} />}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <Matchup key={r.id} row={r} choose={choose} />
+                <Matchup
+                  key={r.id}
+                  row={r}
+                  choose={choose}
+                  baselineMatches={
+                    view.pokemon.find((p) => p.id === r.id)?.matches
+                  }
+                />
               ))}
             </tbody>
           </table>
@@ -733,9 +864,11 @@ function Matchups({
 function Matchup({
   row,
   choose,
+  baselineMatches,
 }: {
   row: MatchupRow;
   choose: (id: string) => void;
+  baselineMatches?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const evidenceId = useId();
@@ -750,6 +883,14 @@ function Matchup({
         </td>
         <td className="numeric">
           <strong>{pct(row.winRate)}</strong>
+          <PerformanceInfo
+            label={`${row.name} matchup and baseline`}
+            evidence={row.evidence}
+            baseline={row.baselineEvidence}
+            matches={row.matches}
+            baselineMatches={baselineMatches}
+            compareBaseline
+          />
         </td>
         <td
           className={`numeric difference ${row.difference !== null && row.difference >= 0 ? 'positive' : 'negative'}`}
@@ -779,8 +920,13 @@ function Matchup({
                 ? 'No change in win rate'
                 : `${Math.abs(row.difference).toFixed(1)} percentage points ${row.difference > 0 ? 'higher' : 'lower'}`}
             <br />
-            {row.events} events · {row.players} unique players · {row.outcomes}{' '}
-            team perspectives
+            {row.events} events · {row.players} namespaced participant
+            identities · {row.outcomes} team perspectives
+            <br />
+            Matchup: <EvidenceDetails evidence={row.evidence} />
+            <br />
+            Overall baseline:{' '}
+            <EvidenceDetails evidence={row.baselineEvidence} />
           </td>
         </tr>
       )}
@@ -829,6 +975,10 @@ function BuildCards({
                 </span>
               </summary>
               <div className="build-content">
+                <QualityInfo
+                  label={`${field} distribution`}
+                  reasons={sampleReasons(distribution.known, 'build')}
+                />
                 {field === 'teammates' && (
                   <p className="build-context">% of {name} teams</p>
                 )}
@@ -892,9 +1042,11 @@ function BuildTable({
 function Evidence({
   dataset,
   view,
+  pokemon,
 }: {
   dataset: PublicDataset;
   view: Aggregate;
+  pokemon?: PokemonRow;
 }) {
   return (
     <details className="evidence" id="evidence">
@@ -905,6 +1057,26 @@ function Evidence({
       </summary>
       <div className="evidence-content">
         <div>
+          <p>
+            Small samples use fewer than 100 registrations for usage, or 100
+            distinct physical matches/series for performance. Build samples use
+            registrations with that field known. Unknown counts remain
+            unavailable.
+          </p>
+          <p>
+            {evidenceSortHelp} Automatic rankings still require{' '}
+            {dataset.floor.matches} physical matches, {dataset.floor.events}{' '}
+            events and {dataset.floor.players} namespaced participant
+            identities. Passing these floors earns no confidence label.
+            Comparable official and community events receive equal treatment;
+            100+ entrants means large.
+          </p>
+          {pokemon && (
+            <p>
+              {pokemon.name} overall:{' '}
+              <EvidenceDetails evidence={pokemon.evidence} />
+            </p>
+          )}
           <p>
             Usage counts registered teams. Win rate shows how often teams
             containing this Pokémon won eligible matches. Matchups compare those
@@ -935,6 +1107,10 @@ function Evidence({
               .filter(
                 (e) =>
                   e.players >= view.options.minPlayers &&
+                  Date.parse(e.date) <= Date.parse(view.options.asOf) &&
+                  Date.parse(e.date) >=
+                    Date.parse(view.options.asOf) -
+                      view.options.days * 86400000 &&
                   (!view.options.official || e.official) &&
                   sourceMatches(view.options.source, e.providers) &&
                   (view.options.sheet === 'all' ||

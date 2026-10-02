@@ -7,6 +7,7 @@ import {
 } from './sources';
 import { buildSummaries } from './builds';
 import { sourceMatches } from './filters';
+import { eventEvidence } from './evidence';
 export { rankMatchups } from './rankings';
 export const CALCULATION_VERSION = 'masters-cohort-series-v5';
 const rate = (wins: number, outcomes: number) =>
@@ -68,6 +69,8 @@ export function selectEvents(events: NormalizedEvent[], options: Options) {
   );
 }
 type Counter = {
+  eventCounts: Map<string, number>;
+  eventSources: Map<string, string[]>;
   wins: number;
   outcomes: number;
   matches: Set<string>;
@@ -75,6 +78,8 @@ type Counter = {
   players: Set<string>;
 };
 const counter = (): Counter => ({
+  eventCounts: new Map(),
+  eventSources: new Map(),
   wins: 0,
   outcomes: 0,
   matches: new Set(),
@@ -87,10 +92,14 @@ function add(
   key: string,
   event: string,
   player: string,
+  providers: string[],
 ) {
   c.wins += Number(win);
   c.outcomes++;
+  if (!c.matches.has(key))
+    c.eventCounts.set(event, (c.eventCounts.get(event) ?? 0) + 1);
   c.matches.add(key);
+  c.eventSources.set(event, providers);
   c.events.add(event);
   c.players.add(player);
 }
@@ -108,6 +117,8 @@ export function aggregate(
     matches = 0,
     excludedMatches = 0;
   for (const event of selected) {
+    const eventProvenance = provenance(event),
+      providers = recordProviders(event);
     const teams = new Map(event.registrations.map((r) => [r.player, r.slots]));
     for (const slots of teams.values()) {
       if (!slots?.length) continue;
@@ -130,7 +141,7 @@ export function aggregate(
       }
       matches++;
       if (!left || !right) throw new Error('Unresolved eligible teams');
-      const key = `${provenance(event).canonicalEvent}:${match.id}`;
+      const key = `${eventProvenance.canonicalEvent}:${match.id}`;
       for (const [own, opp, player] of [
         [left, right, match.player1],
         [right, left, match.player2!],
@@ -142,8 +153,9 @@ export function aggregate(
             pokemon.get(id)!.counter,
             match.winner === player,
             key,
-            event.id,
-            `${provenance(event).participantNamespace}:${player}`,
+            eventProvenance.canonicalEvent,
+            `${eventProvenance.participantNamespace}:${player}`,
+            providers,
           );
           for (const opponent of oppIds) {
             if (!pairs.has(opponent)) pairs.set(opponent, new Map());
@@ -153,14 +165,25 @@ export function aggregate(
               map.get(id)!,
               match.winner === player,
               key,
-              provenance(event).canonicalEvent,
-              `${provenance(event).participantNamespace}:${player}`,
+              eventProvenance.canonicalEvent,
+              `${eventProvenance.participantNamespace}:${player}`,
+              providers,
             );
           }
         }
       }
     }
   }
+  const overallEvidence = new Map(
+    [...pokemon].map(([id, p]) => [
+      id,
+      eventEvidence(
+        p.counter.matches.size,
+        p.counter.eventCounts,
+        p.counter.eventSources,
+      ),
+    ]),
+  );
   const rows = [...pokemon]
     .map(([id, p]) => ({
       id,
@@ -171,6 +194,7 @@ export function aggregate(
       outcomes: p.counter.outcomes,
       matches: p.counter.matches.size,
       winRate: rate(p.counter.wins, p.counter.outcomes),
+      evidence: overallEvidence.get(id),
     }))
     .sort(
       (a, b) =>
@@ -191,6 +215,12 @@ export function aggregate(
           matches: c.matches.size,
           events: c.events.size,
           players: c.players.size,
+          evidence: eventEvidence(
+            c.matches.size,
+            c.eventCounts,
+            c.eventSources,
+          ),
+          baselineEvidence: overallEvidence.get(id),
           winRate,
           baseline,
           difference:

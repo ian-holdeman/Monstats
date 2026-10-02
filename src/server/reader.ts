@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
 import { databasePath } from './paths';
 import { provenance, recordProviders } from '../domain/sources';
 import { datasetRegulation, cohortKey } from '../domain/regulations';
@@ -6,6 +7,7 @@ import { Store } from './store';
 import type { PublishedDataset, RefreshState } from '../domain/types';
 import { aggregate } from '../domain/analytics';
 import { sourceSelection } from '../domain/filters';
+import { withEvidence } from './evidence-reader';
 import { LadderStore } from './ladder-store';
 import type { LadderSummary, LadderEnvironment } from '../domain/ladder';
 export type PublicDataset = Omit<
@@ -45,6 +47,7 @@ export function publicDataset(
   sheet = 'all',
   minPlayers = 0,
   official = false,
+  db?: DatabaseSync,
 ): PublicDataset {
   const { events, collection, quarantine, views, ...rest } = d;
   source = sourceSelection(source);
@@ -71,7 +74,7 @@ export function publicDataset(
           minPlayers,
           official,
         });
-      return { [key]: selected };
+      return { [key]: withEvidence(d.id, selected, db) };
     })(),
     providers: [...new Set(events.flatMap(recordProviders))].map((id) => ({
       id,
@@ -129,9 +132,14 @@ export function readAppData(): AppData {
     } catch {
       ladder.readError = true;
     }
+    const db = store.db;
     return {
-      current: current ? publicDataset(current) : null,
-      archives: store.archives().map((d) => publicDataset(d)),
+      current: current
+        ? publicDataset(current, 'all', 'all', 0, false, db)
+        : null,
+      archives: store
+        .archives()
+        .map((d) => publicDataset(d, 'all', 'all', 0, false, db)),
       status: store.status(),
       readError: false,
       now,

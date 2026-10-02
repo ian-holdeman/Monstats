@@ -14,16 +14,23 @@ import {
 } from '@/domain/dynamic-matchups';
 import type { PublicDataset } from '@/server/reader';
 import type { Options } from '@/domain/types';
+import { EVIDENCE_VERSION } from '@/domain/evidence';
+import {
+  PerformanceInfo,
+  EvidenceDetails,
+  evidenceSortHelp,
+} from './evidence-context';
 
 type Filters = Pick<
   MatchupRequest,
-  'source' | 'sheet' | 'official' | 'minPlayers'
+  'source' | 'sheet' | 'official' | 'minPlayers' | 'hideNotices'
 >;
 const defaults: Filters = {
   source: 'all',
   sheet: 'all',
   official: false,
   minPlayers: 0,
+  hideNotices: false,
 };
 const cache = new BoundedCache<MatchupResponse>(16);
 const pending = new Map<string, Promise<MatchupResponse>>();
@@ -32,6 +39,7 @@ function load(publication: PublicDataset, request: MatchupRequest) {
     publication.id,
     MATCHUP_CALCULATION,
     MATCHUP_INDEX,
+    EVIDENCE_VERSION,
     publication.floor,
     request,
   ]);
@@ -157,8 +165,10 @@ function Evidence({ sample, label }: { sample: Sample; label: string }) {
   return (
     <p>
       <strong>{label}:</strong> {sample.wins} wins / {sample.losses} losses ·{' '}
-      {sample.outcomes} team perspectives · {sample.matches} physical matches ·{' '}
-      {sample.events} events · {sample.players} participant identities
+      {sample.outcomes} team perspectives · {sample.players} participant
+      identities
+      <br />
+      <EvidenceDetails evidence={sample.evidence} />
     </p>
   );
 }
@@ -202,7 +212,16 @@ function ResultRow({
         <div className="combination-metrics">
           <div>
             <span>{matchup ? 'Win rate into B' : 'Overall win rate'}</span>
-            <strong>{pct(row.sample.winRate)}</strong>
+            <strong>
+              {pct(row.sample.winRate)}
+              <PerformanceInfo
+                label={`${names} performance`}
+                evidence={row.sample.evidence}
+                matches={row.sample.matches}
+                baseline={matchup ? row.overall.evidence : undefined}
+                baselineMatches={matchup ? row.overall.matches : undefined}
+              />
+            </strong>
             <small>
               {row.sample.wins}W – {row.sample.losses}L
             </small>
@@ -274,6 +293,7 @@ export function DynamicMatchups({
   onContext: (regulation: string) => void;
 }) {
   const [filters, setFilters] = useState<Filters>({
+    hideNotices: false,
     source: initialFilters?.source ?? defaults.source,
     sheet: initialFilters?.sheet ?? defaults.sheet,
     minPlayers: initialFilters?.minPlayers ?? defaults.minPlayers,
@@ -287,7 +307,7 @@ export function DynamicMatchups({
     initialB.length ? 'discover' : 'compare',
   );
   const [candidateSize, setSize] = useState(1);
-  const [sort, setSort] = useState<'difference' | 'winRate'>(
+  const [sort, setSort] = useState<MatchupRequest['sort']>(
     initialB.length ? 'difference' : 'winRate',
   );
   const [direction, setDirection] = useState<'best' | 'worst'>('best');
@@ -302,7 +322,7 @@ export function DynamicMatchups({
     b: opponent ? b : [],
     mode,
     candidateSize,
-    sort: opponent && b.length ? sort : 'winRate',
+    sort: sort === 'evidence' ? sort : opponent && b.length ? sort : 'winRate',
     direction,
     offset,
     limit: 20,
@@ -397,15 +417,16 @@ export function DynamicMatchups({
           displayedFilters.sheet !== 'all' ||
           displayedFilters.source !== 'all' ||
           displayedFilters.official ||
-          displayedFilters.minPlayers > 0
+          displayedFilters.minPlayers > 0 ||
+          !!displayedFilters.hideNotices
         }
         onFilter={(field, value) =>
           setDraft((d) => ({
             ...d,
             ...(field === 'size'
               ? { minPlayers: Number(value) }
-              : field === 'official'
-                ? { official: value === 'true' }
+              : field === 'official' || field === 'hideNotices'
+                ? { [field]: value === 'true' }
                 : { [field]: value }),
           }))
         }
@@ -437,6 +458,7 @@ export function DynamicMatchups({
         · {displayedFilters.official ? 'Official events' : 'All events'} ·{' '}
         {displayedFilters.minPlayers ? '100+' : '20+'} entrants · Published
         30-day window
+        {displayedFilters.hideNotices && ' · Entries with data notices hidden'}
       </p>
       <div className="matchup-controls">
         <div className="matchup-mode" role="group" aria-label="Calculation">
@@ -504,9 +526,9 @@ export function DynamicMatchups({
             <label>
               Sort by
               <select
-                value={opponent ? sort : 'winRate'}
+                value={sort === 'evidence' ? sort : opponent ? sort : 'winRate'}
                 onChange={(e) => {
-                  setSort(e.target.value as 'difference' | 'winRate');
+                  setSort(e.target.value as MatchupRequest['sort']);
                   setOffset(0);
                 }}
               >
@@ -516,6 +538,7 @@ export function DynamicMatchups({
                 <option value="winRate">
                   {opponent ? 'Matchup win rate' : 'Overall win rate'}
                 </option>
+                <option value="evidence">Most evidence</option>
               </select>
             </label>
           </>
@@ -575,7 +598,7 @@ export function DynamicMatchups({
           <h2>
             {shown!.mode === 'compare'
               ? `${names(shown!.a)} teams`
-              : `${shown!.direction === 'best' ? 'Best' : 'Worst'} ${shown!.candidateSize}-Pokémon combinations`}
+              : `${shown!.sort === 'evidence' ? 'Most evidenced' : shown!.direction === 'best' ? 'Best' : 'Worst'} ${shown!.candidateSize}-Pokémon combinations`}
             {shown!.b.length ? ` into ${names(shown!.b)} teams` : ' · overall'}
           </h2>
           {response.rows.length ? (
@@ -590,10 +613,16 @@ export function DynamicMatchups({
             ))
           ) : (
             <div className="empty">
-              <h3>Insufficient evidence</h3>
+              <h3>
+                {shown!.hideNotices
+                  ? 'No entries match these filters'
+                  : 'Insufficient evidence'}
+              </h3>
               <p>
                 No observed combinations meet the ranking floor for these
-                filters and selections.
+                filters and selections.{' '}
+                {shown!.hideNotices &&
+                  'Change the data notice filter, then select Apply Filter.'}
               </p>
             </div>
           )}
@@ -626,6 +655,16 @@ export function DynamicMatchups({
           )}
           <details className="matchup-methodology">
             <summary>About these results</summary>
+            <p>
+              Small match samples contain fewer than 100 distinct physical
+              matches/series. Matchup and baseline samples are assessed
+              separately. Largest-event share counts distinct physical results.
+            </p>
+            <p>
+              {evidenceSortHelp} Event attendance and source classification are
+              context; comparable official and community events receive equal
+              treatment.
+            </p>
             <p>
               Registered teams containing every selected Pokémon qualify; extra
               members are unrestricted. Six selections identify species

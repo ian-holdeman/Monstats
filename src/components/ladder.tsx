@@ -1,4 +1,6 @@
 'use client';
+import { sampleReasons } from '@/domain/evidence';
+import { QualityInfo } from './evidence-context';
 /* eslint-disable @next/next/no-img-element -- existing local cached artwork */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -588,6 +590,12 @@ export function LadderPanel({
               <div>
                 <span>
                   {shownEnvironment === 'champions' ? 'Usage rank' : 'Usage'}
+                  <QualityInfo
+                    label="Ladder samples"
+                    reasons={[
+                      'Sample unavailable. The source does not establish a usage population or known-field registration samples.',
+                    ]}
+                  />
                 </span>
                 <strong>
                   {shownEnvironment === 'champions'
@@ -714,6 +722,12 @@ export function LadderPanel({
                           <ArrowDown size={13} />
                         ))}
                     </button>
+                    {(key === 'rank' || key === 'usage') && (
+                      <QualityInfo
+                        label="Ladder population"
+                        reasons={sampleReasons(null, 'usage')}
+                      />
+                    )}
                   </th>
                 ))}
                 <th className="arrow-column">
@@ -776,6 +790,14 @@ export function LadderPanel({
               <ChevronRight size={15} />
             </summary>
             <div className="evidence-content">
+              <p>
+                Usage-population and unique-player counts are unavailable.
+                Showdown battles and raw appearances do not establish
+                independent registrations or BO3 series. Champions publishes
+                ranks and marginal builds without sample counts. These sources
+                remain separate from tournament outcomes; percentages never
+                imply missing counts.
+              </p>
               <div>
                 {visible.notes.map((note) => (
                   <p key={note}>{note}</p>

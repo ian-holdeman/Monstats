@@ -16,11 +16,6 @@ try {
   while (!controller.signal.aborted) {
     for (const environment of ['showdown', 'champions'] as const) {
       if (nextLadderRefresh(store, environment) > Date.now()) continue;
-      if (!store.acquireLease(owner, Date.now(), 3600000)) continue;
-      const lease = setInterval(
-        () => store.acquireLease(owner, Date.now(), 3600000),
-        60000,
-      );
       try {
         const datasets = await refreshLadder(store, environment, {
           signal: controller.signal,
@@ -36,7 +31,6 @@ try {
         if (!controller.signal.aborted)
           console.error(error instanceof Error ? error.message : error);
       } finally {
-        clearInterval(lease);
         store.releaseLease(owner);
       }
     }

@@ -24,6 +24,11 @@ export function pokemonColor(id: string) {
 }
 export const monthLabel = (date: string) =>
   /^\d{4}-\d{2}/.test(date) ? `${date.slice(5, 7)}/${date.slice(2, 4)}` : date;
+export function formatDifference(n: number | null, unavailable = '—') {
+  if (n === null || !Number.isFinite(n)) return unavailable;
+  const sign = n > 0 ? '+' : n < 0 && Math.abs(n) >= 0.05 ? '−' : '';
+  return `${sign}${Math.abs(n).toFixed(1)} points`;
+}
 export function spreadParts(raw: string) {
   const match = /^(?:([A-Za-z]+):)?(\d+\/\d+\/\d+\/\d+\/\d+\/\d+)$/.exec(raw);
   if (!match) return null;

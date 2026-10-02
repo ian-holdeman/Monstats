@@ -7,6 +7,32 @@ async function chooseSource(page: Page, name: 'Champions' | 'Showdown') {
   await page.getByRole('button', { name: 'Apply Filter', exact: true }).click();
 }
 
+test('both Ladder usage headers stay clean and sortable while source limits remain inspectable', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ladder', exact: true }).click();
+  for (const source of ['Showdown', 'Champions'] as const) {
+    if (source === 'Champions') await chooseSource(page, source);
+    const header = page.locator('.ladder-table thead');
+    await expect(header.locator('.quality-info')).toHaveCount(0);
+    await header
+      .getByRole('button', {
+        name: source === 'Showdown' ? 'Usage' : 'Usage rank',
+        exact: true,
+      })
+      .click();
+    await expect(
+      header.locator('[aria-sort="ascending"], [aria-sort="descending"]'),
+    ).toHaveCount(1);
+    await page.getByText('About the data', { exact: true }).click();
+    await expect(page.locator('.evidence-content')).toContainText(
+      source === 'Showdown' ? 'Usage-population' : 'ranks',
+    );
+    await page.getByText('About the data', { exact: true }).click();
+  }
+});
+
 test('ladder detail navigation retains content during a cold read and reuses warmed details', async ({
   page,
 }) => {

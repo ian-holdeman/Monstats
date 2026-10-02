@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { Toolbar } from './tournament-toolbar';
 import { rowColor } from './pokemon-color';
+import { spriteUrl } from '@/domain/artwork';
+import { formatDifference } from '@/domain/presentation';
 import { BoundedCache } from '@/domain/bounded-cache';
 import {
   MATCHUP_CALCULATION,
@@ -15,6 +17,8 @@ import {
 import type { PublicDataset } from '@/server/reader';
 import type { Options } from '@/domain/types';
 import { EVIDENCE_VERSION } from '@/domain/evidence';
+import { MATCHUP_RANKING } from '@/domain/rankings';
+import { ResultsScroll } from './results-scroll';
 import {
   PerformanceInfo,
   EvidenceDetails,
@@ -40,6 +44,7 @@ function load(publication: PublicDataset, request: MatchupRequest) {
     MATCHUP_CALCULATION,
     MATCHUP_INDEX,
     EVIDENCE_VERSION,
+    MATCHUP_RANKING,
     publication.floor,
     request,
   ]);
@@ -66,10 +71,7 @@ function load(publication: PublicDataset, request: MatchupRequest) {
 }
 const pct = (n: number | null) =>
   n === null ? 'Unavailable' : `${n.toFixed(1)}%`;
-const pp = (n: number | null) =>
-  n === null
-    ? 'Unavailable'
-    : `${n > 0 ? '+' : n < 0 && Math.abs(n) >= 0.05 ? '−' : ''}${Math.abs(n).toFixed(1)} points`;
+const pp = (n: number | null) => formatDifference(n, 'Unavailable');
 
 function Selector({
   label,
@@ -113,7 +115,7 @@ function Selector({
             onClick={() => edit(members.filter((member) => member !== id))}
             aria-label={`Remove ${catalog.find((p) => p.id === id)?.name ?? id} from ${label}`}
           >
-            <img src={`/sprites/${id}`} alt="" width={40} height={40} />
+            <img src={spriteUrl(id)} alt="" width={40} height={40} />
             {catalog.find((p) => p.id === id)?.name ?? id}
             <span aria-hidden="true">×</span>
           </button>
@@ -149,7 +151,7 @@ function Selector({
                 }}
                 aria-label={`Add ${p.name} to ${label}`}
               >
-                <img src={`/sprites/${p.id}`} alt="" width={36} height={36} />
+                <img src={spriteUrl(p.id)} alt="" width={36} height={36} />
                 {p.name}
               </button>
             ))
@@ -198,13 +200,7 @@ function ResultRow({
         >
           <span className="combination-sprites">
             {row.members.map((id) => (
-              <img
-                key={id}
-                src={`/sprites/${id}`}
-                alt=""
-                width={48}
-                height={48}
-              />
+              <img key={id} src={spriteUrl(id)} alt="" width={48} height={48} />
             ))}
           </span>
           <strong>{names}</strong>
@@ -220,6 +216,7 @@ function ResultRow({
                 matches={row.sample.matches}
                 baseline={matchup ? row.overall.evidence : undefined}
                 baselineMatches={matchup ? row.overall.matches : undefined}
+                compareBaseline={matchup}
               />
             </strong>
             <small>
@@ -279,6 +276,86 @@ function ResultRow({
     </article>
   );
 }
+function DiscoveryResults({
+  response,
+  current,
+  loading,
+  inspect,
+  page,
+}: {
+  response: MatchupResponse;
+  current: boolean;
+  loading: boolean;
+  inspect: (members: string[]) => void;
+  page: (offset: number) => void;
+}) {
+  const q = response.request;
+  const group = q.direction === 'best' ? 'Best' : 'Worst';
+  return (
+    <section className="discovery-panel" aria-label={`${group} combinations`}>
+      <h3>
+        {group} <span>{response.total.toLocaleString()} combinations</span>
+      </h3>
+      <ResultsScroll
+        label={`${group} combination rows`}
+        resetKey={JSON.stringify([response.publication, q])}
+        className="combination-scroll"
+      >
+        {response.rows.length ? (
+          response.rows.map((row) => (
+            <ResultRow
+              key={row.key}
+              row={row}
+              response={response}
+              inspect={inspect}
+              interactive={current && !loading}
+            />
+          ))
+        ) : (
+          <div className="matchup-empty">
+            <h4>
+              {response.eligibleTotal
+                ? `No qualifying ${q.direction === 'best' ? 'positive or neutral' : 'negative'} matchups`
+                : q.hideNotices
+                  ? 'No entries match these filters'
+                  : 'Insufficient evidence'}
+            </h4>
+            <p>
+              {response.eligibleTotal
+                ? 'Eligible comparisons belong to the other group.'
+                : 'No observed combinations meet the ranking floor and active filters.'}
+            </p>
+          </div>
+        )}
+      </ResultsScroll>
+      {response.total > q.limit && (
+        <nav
+          className="matchup-pagination"
+          aria-label={`${group} combination pages`}
+        >
+          <button
+            disabled={q.offset === 0 || loading || !current}
+            onClick={() => page(Math.max(0, q.offset - q.limit))}
+          >
+            Previous
+          </button>
+          <span>
+            {q.offset + 1}–{Math.min(q.offset + q.limit, response.total)} of{' '}
+            {response.total}
+          </span>
+          <button
+            disabled={
+              q.offset + q.limit >= response.total || loading || !current
+            }
+            onClick={() => page(q.offset + q.limit)}
+          >
+            Next
+          </button>
+        </nav>
+      )}
+    </section>
+  );
+}
 export function DynamicMatchups({
   dataset,
   initialA = [],
@@ -311,8 +388,16 @@ export function DynamicMatchups({
     initialB.length ? 'difference' : 'winRate',
   );
   const [direction, setDirection] = useState<'best' | 'worst'>('best');
-  const [offset, setOffset] = useState(0);
+  const [offset, updateOffset] = useState(0);
+  const [worstOffset, setWorstOffset] = useState(0);
+  function setOffset(value: number) {
+    updateOffset(value);
+    setWorstOffset(0);
+  }
   const [savedResponse, setResponse] = useState<MatchupResponse | null>(null);
+  const [worstResponse, setWorstResponse] = useState<MatchupResponse | null>(
+    null,
+  );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -323,11 +408,12 @@ export function DynamicMatchups({
     mode,
     candidateSize,
     sort: sort === 'evidence' ? sort : opponent && b.length ? sort : 'winRate',
-    direction,
+    direction: mode === 'discover' && opponent ? 'best' : direction,
     offset,
     limit: 20,
   };
   const encoded = JSON.stringify(request);
+  const paired = mode === 'discover' && opponent && b.length > 0;
   const ready =
     (mode === 'discover' || a.length > 0) && (!opponent || b.length > 0);
   // An incomplete selection has no result. Retention only bridges valid reads.
@@ -338,7 +424,8 @@ export function DynamicMatchups({
       ([key, value]) =>
         JSON.stringify(value) ===
         JSON.stringify(response.request[key as keyof MatchupRequest]),
-    );
+    ) &&
+    (!paired || worstResponse?.request.offset === worstOffset);
   useEffect(() => {
     let stale = false;
     async function read() {
@@ -346,6 +433,7 @@ export function DynamicMatchups({
       if (stale) return;
       if (!ready) {
         setResponse(null);
+        setWorstResponse(null);
         setError('');
         setLoading(false);
         onContext(dataset.regulation ?? 'M-C');
@@ -354,9 +442,20 @@ export function DynamicMatchups({
       setLoading(true);
       setError('');
       try {
-        const result = await load(dataset, JSON.parse(encoded));
+        const primary: MatchupRequest = JSON.parse(encoded);
+        const [result, worst] = await Promise.all([
+          load(dataset, primary),
+          paired
+            ? load(dataset, {
+                ...primary,
+                direction: 'worst',
+                offset: worstOffset,
+              })
+            : Promise.resolve(null),
+        ]);
         if (!stale) {
           setResponse(result);
+          setWorstResponse(worst);
           setLoading(false);
           onContext(result.regulation);
         }
@@ -377,7 +476,7 @@ export function DynamicMatchups({
     };
     // Immutable publication and complete request identities govern reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset.id, encoded, ready, retry]);
+  }, [dataset.id, encoded, ready, retry, paired, worstOffset]);
   const catalog =
     response?.catalog ??
     Object.values(dataset.views)[0].pokemon.map((p) => ({
@@ -456,8 +555,10 @@ export function DynamicMatchups({
             ? 'OTS'
             : 'CTS'}{' '}
         · {displayedFilters.official ? 'Official events' : 'All events'} ·{' '}
-        {displayedFilters.minPlayers ? '100+' : '20+'} entrants · Published
-        30-day window
+        {displayedFilters.minPlayers ? '100+' : '20+'} entrants ·{' '}
+        {Object.values(dataset.views)[0]?.options.interval
+          ? 'Full regulation coverage'
+          : 'Published coverage'}
         {displayedFilters.hideNotices && ' · Entries with data notices hidden'}
       </p>
       <div className="matchup-controls">
@@ -510,19 +611,21 @@ export function DynamicMatchups({
                 ))}
               </select>
             </label>
-            <label>
-              Ranking
-              <select
-                value={direction}
-                onChange={(e) => {
-                  setDirection(e.target.value as 'best' | 'worst');
-                  setOffset(0);
-                }}
-              >
-                <option value="best">Best</option>
-                <option value="worst">Worst</option>
-              </select>
-            </label>
+            {!opponent && (
+              <label>
+                Ranking
+                <select
+                  value={direction}
+                  onChange={(e) => {
+                    setDirection(e.target.value as 'best' | 'worst');
+                    setOffset(0);
+                  }}
+                >
+                  <option value="best">Best</option>
+                  <option value="worst">Worst</option>
+                </select>
+              </label>
+            )}
             <label>
               Sort by
               <select
@@ -598,10 +701,29 @@ export function DynamicMatchups({
           <h2>
             {shown!.mode === 'compare'
               ? `${names(shown!.a)} teams`
-              : `${shown!.sort === 'evidence' ? 'Most evidenced' : shown!.direction === 'best' ? 'Best' : 'Worst'} ${shown!.candidateSize}-Pokémon combinations`}
+              : `${shown!.b.length ? '' : shown!.sort === 'evidence' ? 'Most evidenced ' : shown!.direction === 'best' ? 'Best ' : 'Worst '}${shown!.candidateSize}-Pokémon combinations`}
             {shown!.b.length ? ` into ${names(shown!.b)} teams` : ' · overall'}
           </h2>
-          {response.rows.length ? (
+          {shown!.mode === 'discover' ? (
+            <div className={shown!.b.length ? 'results-pair' : ''}>
+              <DiscoveryResults
+                response={response}
+                current={!!current}
+                loading={loading}
+                inspect={inspect}
+                page={updateOffset}
+              />
+              {shown!.b.length > 0 && worstResponse && (
+                <DiscoveryResults
+                  response={worstResponse}
+                  current={!!current}
+                  loading={loading}
+                  inspect={inspect}
+                  page={setWorstOffset}
+                />
+              )}
+            </div>
+          ) : response.rows.length ? (
             response.rows.map((row) => (
               <ResultRow
                 key={row.key}
@@ -625,33 +747,6 @@ export function DynamicMatchups({
                   'Change the data notice filter, then select Apply Filter.'}
               </p>
             </div>
-          )}
-          {shown!.mode === 'discover' && response.total > shown!.limit && (
-            <nav className="matchup-pagination" aria-label="Combination pages">
-              <button
-                disabled={shown!.offset === 0 || loading || !current}
-                onClick={() =>
-                  setOffset(Math.max(0, shown!.offset - shown!.limit))
-                }
-              >
-                Previous
-              </button>
-              <span>
-                {shown!.offset + 1}–
-                {Math.min(shown!.offset + shown!.limit, response.total)} of{' '}
-                {response.total}
-              </span>
-              <button
-                disabled={
-                  shown!.offset + shown!.limit >= response.total ||
-                  loading ||
-                  !current
-                }
-                onClick={() => setOffset(shown!.offset + shown!.limit)}
-              >
-                Next
-              </button>
-            </nav>
           )}
           <details className="matchup-methodology">
             <summary>About these results</summary>

@@ -8,7 +8,7 @@ The dynamic matchup calculator is completed and accepted, including comparison c
 
 Small information controls provide sample and identity context while preserving raw statistics and the accepted layout. Most evidence orders performance rows by distinct physical results; it does not certify reliability. Supporting event concentration, source composition and separate baselines remain in expanded evidence. See [definitions, limitations and legacy backfill](docs/evidence-context.md). Existing saved publications use `npm run evidence:backfill`; browsing never creates a missing artifact.
 
-The glossy usage rows and monochrome Poké Ball brand remain; detail pages use compact tables with small sprites. Tournament source/sheet filters default to All. Sources toggle independently, so RK9's pokedata mirror and Limitless can be selected together without Victory Road. Filter edits and Reset wait for Apply Filter. Events require 20+ entrants and large means 100+. Performer columns sort by win rate or change versus that Pokémon's overall rate, with change selected by default. Registered build summaries combine equivalent casing/spacing while preserving raw evidence. Archive preserves frozen publications. Row colors follow canonical primary typing and do not encode performance.
+The glossy usage rows and monochrome Poké Ball brand remain; detail pages use compact tables with small sprites. Tournament source/sheet filters default to All. Sources toggle independently, so RK9's pokedata mirror and Limitless can be selected together without Victory Road. Filter edits and Reset wait for Apply Filter. Events require 20+ entrants and large means 100+. Best performers have finite unrounded changes of zero or greater against their own overall baseline; Worst performers have negative changes. Win rate, change vs overall, and Most evidence reorder only their respective group. Both groups use compact, independent scroll panels. Registered build summaries combine equivalent casing/spacing while preserving raw evidence. Archive preserves frozen publications. Row colors follow canonical primary typing and do not encode performance.
 
 Ladder's expanded Filters panel starts with Showdown and Champions source buttons. Showdown offers regulation, month, BO1/BO3 and All ratings / 1500+ / 1630+ / 1760+. Champions offers regulation and season/capture, with BO1 only and no rating split. Source and filter edits wait for Apply Filter; the header and summary below Filters follow the data actually displayed. Reporting dates use MM/YY. Champions shows usage rank once per row, teammate ranks, marginal build percentages and available rank history. These populations have no combined All view. Ladder win rates remain unavailable because the integrated usage sources supply no competitive team outcomes. See the [ladder source and coverage report](docs/ladder-coverage.md).
 
@@ -24,6 +24,7 @@ Requires Node **24.19+ in the 24.x line** and npm. No database service, account 
 
 ```powershell
 npm ci
+npm run build:workers
 npm run ingest
 npm run assets:cache
 npm run dev
@@ -45,23 +46,24 @@ npm run assets:cache -- --ladder
 npm run ingest:ladder:watch
 ```
 
-By default, Showdown discovers the latest published month and retains August 2026 as the historical M-B audit month. Only explicitly recognized Champions VGC M-B/M-C formats enter ingestion. Champions performs a complete, resumable Doubles detail sweep at the source's ten-second request spacing; this can take roughly 45 minutes. Daily checks and five-minute failure retries run only while the optional worker is active. `--once` checks due sources once. No operating-system scheduler is installed. A source failure preserves its prior ladder publications and independent tournament coverage. New Champions seasons require a reviewed source contract; the current contract is M-6/M-C.
+Showdown discovers every missing supported month from August 2026 onward and checks the latest published reports. Only reviewed Champions VGC M-B/M-C format mappings enter ingestion. Champions performs a complete, resumable Doubles detail sweep at ten-second source spacing. Daily checks and bounded failure retries run while the optional worker is active, respecting persistent provider cooldowns. `--once` checks due sources once. Source failure preserves prior publications. New Champions seasons require a reviewed contract in `config/ladder-sources.json`; the current cartridge contract is M-6/M-C.
 
-`npm run ingest` discovers all available Limitless M-C listing/completed pages and public Victory Road circuit results. Completed standard Champions events require 20 evidenced entrants within the rolling 30-day window. Listing exhaustion is **not a worldwide census or complete team coverage**. Existing facts are cached for 24 hours; `--force` revisits them. `--max-reads 500` sets a resumable Limitless request budget. The old `--limit` option is retired. Failure preserves saved facts; local date expiry still applies. Polling details stay outside the UI.
+Tournament ingestion discovers supported Limitless pages, compatible Victory Road circuit results and verifiable major official Masters mirrors. Completed standard Champions events require 20 evidenced entrants within the **full reviewed regulation interval**. Recent events use daily checks; settled events use weekly correction checks while active. Durable listing and per-event work survive budgets and interruption beyond 24 hours. `--force` revisits facts and `--max-reads 500` bounds requests. Listing exhaustion is **not a worldwide census or complete team coverage**. Failure preserves validated facts and reports carried coverage.
 
 Start the independent local worker in a separate terminal:
 
 ```powershell
 npm run ingest:watch
-# Optional hourly discovery:
-npm run ingest:watch -- --interval-hours 1
+# Configurable fixed UTC slot:
+$env:MONSTATS_DAILY_UTC = '06:00'
+npm run ingest:watch
 ```
 
-Daily is the default. The computer and worker must remain running. Restarting catches up when overdue; failures retry after at least five minutes or the provider's longer cooldown. Ctrl+C stops it. `--once` checks once and exits. No scheduled task, service or hosted resource is installed. Browsing reads one cached immutable cohort and retains interaction state during local publication checks.
+The supervised worker collects daily at 06:00 UTC by default, catches up the latest active slot after restart and bounds retries/runtime. Ctrl+C stops it. `npm run ingest:daily` dispatches once; an external scheduler must also cover transition boundaries and the final execution window. No scheduled task, service or hosted resource is installed. See the [operating guide](docs/ingestion-operations.md) for compiled production installation, health, backups, recovery and measured capacity.
 
 Raw snapshots, observations, quarantine, slots, checkpoints and compressed publication versions live in ignored `.monstats/`. Back up this directory; it is never served statically. `MONSTATS_DATA_DIR` consistently selects the directory for app readers, ingestion, audits, traces and artwork.
 
-`npm run ingest -- --archive` freezes the active publication, removes active browsing and disables that cohort's collection. Only M-C is enabled. Incoming regulations require verified configuration, independent staging and deliberate activation; see the [transition procedure](docs/official-coverage.md#operation-and-regulation-transitions). M-D evidence is never relabeled M-C.
+Only M-C is enabled, from September 9 02:00 UTC through December 2 02:00 UTC, exclusive. Reviewed incoming contracts transition automatically, including honest empty coverage. Outgoing coverage enters Archive immediately; one final job runs seven days after the end, then permanently freezes. Failed/missed finalization retains the last valid archive. Unknown incoming rules are never inferred. Manual `--archive` retirement remains available; it does not bypass the final-job contract.
 
 ## Statistical contract
 
@@ -78,7 +80,7 @@ Registration does not establish what was brought, led, transformed or used a mov
 
 ## Audit and limitations
 
-The latest local publication adds three official Masters Regionals through the pokedata RK9 mirror: **70 events, 7,081 complete registrations and 21,196 eligible physical results** in All. Official alone has 2,522 complete teams and 10,308 results. Community facts were carried forward in this official-only refresh. See the [official report](docs/official-coverage.md) for exclusions, traces and access limits.
+The October 2 full-regulation backfill has **79 events, 7,621 complete registrations and 22,342 eligible physical results**, up from 70 / 7,081 / 21,196. Nine newly admitted Limitless events explain all growth; overlapping aggregates match without source corrections. Three previously validated official Masters Regionals remain. Fresh mirror completion gaps are disclosed, and no additional compatible Special/International/Worlds feed was established. See the [backfill and operating report](docs/ingestion-operations.md) and [official evidence limits](docs/official-coverage.md).
 
 The API exposes no general administrative-win marker; unmarked administrative wins cannot currently be identified. Sheet evidence relies on organizer descriptions. Unknown identities or changed payloads can reduce coverage or stop publication. Unavailable artwork uses neutral placeholders. See [methodology](docs/methodology.md) and [roadmap](docs/roadmap.md).
 
@@ -106,6 +108,6 @@ Browser tests create labeled deterministic fixtures in `.monstats/e2e/` and use 
 
 ## Attribution
 
-Data: [Limitless API](https://docs.limitlesstcg.com/developer/tournaments.html), organizer descriptions, [Victory Road circuit results](https://circuit.victoryroad.pro/), the [pokedata public RK9 mirror](https://pokedata.ovh/standings2/), [Smogon monthly Showdown statistics](https://www.smogon.com/stats/) and [MunchStats in-game capture](https://www.munchstats.com/about/). Parsers are original code. Canonical identities and stones: [@pkmn/dex](https://github.com/pkmn/ps). Artwork: locally cached [Pokémon Showdown sprites](https://play.pokemonshowdown.com/sprites/). Pokémon characters and artwork belong to their respective rights holders. This is an unofficial personal project.
+Data: [Limitless API](https://docs.limitlesstcg.com/developer/tournaments.html), organizer descriptions, [Victory Road circuit results](https://circuit.victoryroad.pro/), the [pokedata public RK9 mirror](https://pokedata.ovh/standings2/), [Smogon monthly Showdown statistics](https://www.smogon.com/stats/) and [MunchStats in-game capture](https://www.munchstats.com/about/). Parsers are original code. Canonical identities and stones: [@pkmn/dex](https://github.com/pkmn/ps). Artwork: locally cached [Pokémon Showdown sprites](https://play.pokemonshowdown.com/sprites/) and **Kyledove** Mega sprites from [PokeAPI](https://github.com/PokeAPI/sprites/pull/236), with thanks to its contributors. See [acquisition and attribution](docs/artwork.md). Pokémon characters and artwork belong to their respective rights holders. This is an unofficial personal project.
 
 [MunchStats](https://github.com/PizzaTimeJoshua/munchstats) was studied for separating source caches, normalization and aggregates. No license was declared at audit time; no code was incorporated. This application was drafted with OpenAI Codex assistance.

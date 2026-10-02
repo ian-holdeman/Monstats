@@ -114,7 +114,7 @@ export class LadderStore {
   publish(input: LadderDraft) {
     return this.publishBatch([input])[0];
   }
-  publishBatch(inputs: LadderDraft[]) {
+  publishBatch(inputs: LadderDraft[], owner?: string) {
     const drafts = inputs.map(validateLadder);
     if (!drafts.length || new Set(drafts.map(ladderKey)).size !== drafts.length)
       throw new Error('Empty or duplicate ladder batch');
@@ -129,6 +129,7 @@ export class LadderStore {
     }));
     this.store.db.exec('BEGIN IMMEDIATE');
     try {
+      this.store.assertLease(owner);
       for (const dataset of datasets) {
         this.store.db
           .prepare('INSERT OR IGNORE INTO ladder_versions VALUES (?,?)')
@@ -145,6 +146,7 @@ export class LadderStore {
           message: 'Validated ladder data published',
         });
       }
+      this.store.assertLease(owner);
       this.store.db.exec('COMMIT');
     } catch (error) {
       this.store.db.exec('ROLLBACK');

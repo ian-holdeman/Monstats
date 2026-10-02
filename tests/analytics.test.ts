@@ -62,7 +62,7 @@ test('performer ranking defaults to improvement over each Pokémon’s overall r
   );
   assert.equal(
     rankMatchups(result, 'incineroar', 'worst', floor, 'winRate')[0].id,
-    'zero',
+    'low-lift',
   );
 });
 test('registration usage is unweighted; series outcomes and overlap perspectives have exact rates', () => {

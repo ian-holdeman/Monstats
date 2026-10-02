@@ -14,6 +14,9 @@ await mkdir(dataDirectory(), { recursive: true });
 const store = new Store(databasePath());
 const asOf = new Date().toISOString();
 const owner = randomUUID();
+const controller = new AbortController();
+process.once('SIGINT', () => controller.abort());
+process.once('SIGTERM', () => controller.abort());
 let leased = false;
 try {
   if (process.argv.includes('--archive')) {
@@ -80,6 +83,10 @@ try {
       const index = process.argv.indexOf('--max-reads');
       const regulationIndex = process.argv.indexOf('--regulation');
       const dataset = await refresh(store, asOf, {
+        signal: AbortSignal.any([
+          controller.signal,
+          AbortSignal.timeout(45 * 60000),
+        ]),
         force: process.argv.includes('--force'),
         maxReads: index < 0 ? undefined : Number(process.argv[index + 1]),
         regulation:

@@ -26,7 +26,13 @@ test('data notice checkbox applies explicitly and restores raw rows on reset', a
   ).toHaveCount(0);
   await page.getByRole('button', { name: 'Incineroar', exact: true }).click();
   await expect(page.locator('.matchup-section .quality-info')).toHaveCount(0);
-  await expect(page.locator('.matchup-section .matchup-table')).toHaveCount(2);
+  await expect(page.locator('.matchup-section .matchup-table')).toHaveCount(1);
+  await expect(
+    page.getByRole('region', {
+      name: 'Worst performers into Incineroar teams',
+      exact: true,
+    }),
+  ).toContainText('No qualifying negative matchups');
   await page.getByRole('button', { name: 'Back to usage' }).click();
   await page.getByText('Filters', { exact: true }).click();
   await page.getByRole('button', { name: 'Reset', exact: true }).click();
@@ -202,11 +208,9 @@ test('narrow touch disclosures retain density and ladder samples stay unavailabl
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   await page.screenshot({ path: '.monstats/evidence-qa/narrow-tooltip.png' });
   await page.getByRole('button', { name: 'Ladder', exact: true }).tap();
-  await page
-    .getByRole('button', { name: 'Ladder population: data context' })
-    .tap();
-  await expect(page.getByRole('tooltip')).toContainText('Sample unavailable');
-  await page.keyboard.press('Escape');
+  await expect(page.locator('.ladder-table thead .quality-info')).toHaveCount(
+    0,
+  );
   await page.getByRole('button', { name: 'Rillaboom', exact: true }).tap();
   await page
     .getByRole('button', { name: 'Ladder samples: data context' })

@@ -1,3 +1,4 @@
+import { coverageInterval } from '../domain/regulations';
 import { z } from 'zod';
 import { normalizeSlot } from '../domain/normalize';
 import { eligibility, provenance } from '../domain/sources';
@@ -6,7 +7,7 @@ import type {
   NormalizedEvent,
   Snapshot,
 } from '../domain/types';
-import { fetchBounded, type CollectorOptions } from './collector';
+import { fetchBounded, failureClass, type CollectorOptions } from './collector';
 import { Store } from './store';
 const circuit = 'https://circuit.victoryroad.pro';
 const articleOrigin = 'https://victoryroad.pro';
@@ -61,23 +62,32 @@ export function victoryMetadata(article: string, page: string) {
   )
     throw new Error('incompatible-format');
   const date = text.match(
-    /Date\s+(\d{1,2})(?:[–-]\d{1,2})?\s+([A-Za-z]+)\s+(\d{4})\b/,
+    /Date\s+(\d{1,2})(?:[–-](\d{1,2}))?\s+([A-Za-z]+)\s+(\d{4})\b/,
   );
   const time = plain(
     page.match(/<p class="tp-fecha">([\s\S]*?)<\/p>/)?.[1] ?? '',
   ).match(/(\d{1,2})\s+([A-Za-z]+)\s*·\s*(\d{2}:\d{2}) UTC/);
-  const month = months.indexOf(date?.[2] ?? '') + 1;
+  const month = months.indexOf(date?.[3] ?? '') + 1;
   if (
     !date ||
     !time ||
     !month ||
     Number(time[1]) !== Number(date[1]) ||
-    time[2] !== date[2]
+    time[2] !== date[3]
   )
     throw new Error('Unresolved Victory Road start date');
-  const dateString = `${date[3]}-${String(month).padStart(2, '0')}-${date[1].padStart(2, '0')}T${time[3]}:00.000Z`;
+  const dateString = `${date[4]}-${String(month).padStart(2, '0')}-${date[1].padStart(2, '0')}T${time[3]}:00.000Z`;
   if (new Date(dateString).toISOString() !== dateString)
     throw new Error('Invalid Victory Road start date');
+  const endsAt = date[2]
+    ? `${date[4]}-${String(month).padStart(2, '0')}-${date[2].padStart(2, '0')}T23:59:59.999Z`
+    : undefined;
+  if (
+    endsAt &&
+    (new Date(endsAt).toISOString() !== endsAt ||
+      Date.parse(endsAt) < Date.parse(dateString))
+  )
+    throw new Error('Invalid Victory Road end date');
   const players = Number(text.match(/Attendance\s+(\d+) players\b/)?.[1]);
   const pagePlayers = Number(
     page.match(/<div class="n">(\d+)<\/div><div class="l">Players<\/div>/)?.[1],
@@ -86,6 +96,7 @@ export function victoryMetadata(article: string, page: string) {
     throw new Error('contradictory-entrant-count');
   return {
     date: dateString,
+    endsAt,
     players,
     sheet: /\bOpen team lists\b/.test(text)
       ? ('open' as const)
@@ -127,6 +138,7 @@ export function normalizeVictoryRoad(
     name: plain(page.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1] ?? slug),
     regulation: 'M-C',
     date: metadata.date,
+    endsAt: metadata.endsAt,
     players: metadata.players,
     completed: false,
     platform: 'SWITCH',
@@ -280,9 +292,35 @@ export async function collectVictoryRoad(
   // The circuit parser is audited only for M-C; other evidence stays unsupported.
   if (regulation !== 'M-C') return [];
   const refs: Snapshot[] = [];
+  let reads = 0;
+  const rateAware = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const due = store.state<number>('victory-road-next-request') ?? 0;
+    if (due > Date.now()) throw new Error('Victory Road provider cooldown');
+    const response = await fetcher(input, init);
+    const retry = response.headers.get('retry-after');
+    if (response.status === 429 || (response.status >= 500 && retry)) {
+      const duration = retry
+        ? Number.isFinite(Number(retry))
+          ? Number(retry) * 1000
+          : Date.parse(retry) - Date.now()
+        : 60000;
+      store.saveState(
+        'victory-road-next-request',
+        Date.now() +
+          Math.max(1000, Number.isFinite(duration) ? duration : 60000),
+      );
+    }
+    return response;
+  }) as typeof fetch;
   const read = async (url: string) => {
+    options.signal?.throwIfAborted();
+    if (++reads > (options.maxReads ?? 100))
+      throw new Error('Victory Road request budget reached');
     options.heartbeat?.();
-    const body = await fetchBounded(url, fetcher, options.signal);
+    const body = await fetchBounded(url, rateAware, options.signal);
     const ref = store.snapshot(url, body, new Date().toISOString());
     refs.push(ref);
     report.snapshots.push(ref);
@@ -303,10 +341,11 @@ export async function collectVictoryRoad(
   ];
   if (!slugs.length || slugs.length > 50)
     throw new Error('Unresolved Victory Road discovery');
-  const end = Date.parse(asOf),
-    start = end - 30 * 86400000;
+  const interval = coverageInterval(regulation, asOf, store.config);
+  const end = Date.parse(interval.cutoff),
+    start = Date.parse(interval.start);
   const events = new Map(
-    (store.current()?.events ?? [])
+    (store.forRegulation(regulation, options.stage)?.events ?? [])
       .filter(
         (e) =>
           provenance(e).sources.some((s) => s.provider === 'victory-road') &&
@@ -324,10 +363,26 @@ export async function collectVictoryRoad(
     const cached = store.cache(cacheKey) ?? store.cache(id);
     if (
       !options.force &&
+      cached &&
+      !cached.event &&
+      Date.parse(asOf) - Date.parse(cached.retrievedAt) < 7 * 86400000
+    ) {
+      report.excluded.push({
+        id,
+        reason: cached.reason ?? 'unsupported-evidence',
+        evidence: null,
+      });
+      continue;
+    }
+    if (
+      !options.force &&
       cached?.event &&
       cached.event.regulation === regulation &&
-      end - Date.parse(cached.retrievedAt) >= 0 &&
-      end - Date.parse(cached.retrievedAt) < 86400000 &&
+      Date.parse(asOf) - Date.parse(cached.retrievedAt) >= 0 &&
+      Date.parse(asOf) - Date.parse(cached.retrievedAt) <
+        (end - Date.parse(cached.event.date) > 7 * 86400000
+          ? 7 * 86400000
+          : 86400000) &&
       Date.parse(cached.event.date) >= start &&
       Date.parse(cached.event.date) <= end
     ) {
@@ -335,21 +390,38 @@ export async function collectVictoryRoad(
       report.cached++;
       continue;
     }
-    const article = await read(`${articleOrigin}/${slug}/`);
-    if (
-      !plain(article).includes('Pokémon Champions') ||
-      !/VGC Regulation Set M-C\b/.test(plain(article))
-    ) {
-      report.excluded.push({
-        id,
-        reason: 'incompatible-format',
-        evidence: refs.at(-1),
-      });
-      events.delete(id);
-      continue;
-    }
-    const page = await read(`${circuit}/tournament/${slug}`);
+    const workKey = `${cacheKey}:work${options.finalJob ? ':' + options.finalJob : ''}`;
+    const work = store.state<{
+      bodies: Record<string, { body: string; ref: Snapshot }>;
+    }>(workKey) ?? { bodies: {} };
+    const eventRead = async (url: string) => {
+      const saved = work.bodies[url];
+      if (saved) {
+        refs.push(saved.ref);
+        report.snapshots.push(saved.ref);
+        return saved.body;
+      }
+      const body = await read(url);
+      work.bodies[url] = { body, ref: refs.at(-1)! };
+      store.saveState(workKey, work);
+      return body;
+    };
     try {
+      const article = await eventRead(`${articleOrigin}/${slug}/`);
+      if (
+        !plain(article).includes('Pokémon Champions') ||
+        !/VGC Regulation Set M-C\b/.test(plain(article))
+      ) {
+        report.excluded.push({
+          id,
+          reason: 'incompatible-format',
+          evidence: refs.at(-1),
+        });
+        events.delete(id);
+        store.saveState(workKey, null);
+        continue;
+      }
+      const page = await eventRead(`${circuit}/tournament/${slug}`);
       const metadata = victoryMetadata(article, page);
       if (
         Date.parse(metadata.date) < start ||
@@ -361,12 +433,14 @@ export async function collectVictoryRoad(
           evidence: metadata,
         });
         events.delete(id);
+        store.saveState(workKey, null);
         continue;
       }
       const reason = eligibility(metadata.players);
       if (reason) {
         report.excluded.push({ id, reason, evidence: metadata });
         events.delete(id);
+        store.saveState(workKey, null);
         continue;
       }
       const event = normalizeVictoryRoad(
@@ -378,18 +452,31 @@ export async function collectVictoryRoad(
       store.saveCache(cacheKey, asOf, event);
       events.set(id, event);
       report.refreshed++;
+      store.saveState(workKey, null);
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'source-failure';
+      const kind = failureClass(error);
+      if (options.signal?.aborted || kind === 'lease-contention') throw error;
       if (
-        ![
-          'not-confirmed-completed',
-          'contradictory-entrant-count',
-          'incompatible-format',
-        ].includes(reason)
+        [
+          'request-budget',
+          'rate-limit',
+          'transient-failure',
+          'access-denied',
+        ].includes(kind)
       )
-        throw error;
-      events.delete(id);
-      report.excluded.push({ id, reason, evidence: refs.slice(offset) });
+        report.discovery = 'partial';
+      else {
+        store.saveCache(cacheKey, asOf, null, reason);
+        store.saveState(workKey, null);
+      }
+      if (events.has(id)) report.carriedForward.push(id);
+      report.excluded.push({
+        id,
+        reason: kind,
+        evidence: { message: reason, snapshots: refs.slice(offset) },
+      });
+      if (kind === 'request-budget' || kind === 'rate-limit') break;
     }
   }
   return [...events.values()];

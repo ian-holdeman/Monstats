@@ -1,3 +1,4 @@
+import { optionBounds } from '../domain/regulations';
 import { performanceReasons } from '../domain/evidence';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { eligibleResult, selectEvents } from '../domain/analytics';
@@ -208,10 +209,8 @@ export function perspectiveQuery(
     values: SQLInputValue[] = [
       version,
       meta.regulation,
-      new Date(meta.options.asOf).toISOString(),
-      new Date(
-        Date.parse(meta.options.asOf) - meta.options.days * 86400000,
-      ).toISOString(),
+      new Date(optionBounds(meta.options).end).toISOString(),
+      new Date(optionBounds(meta.options).start).toISOString(),
       Math.max(20, q.minPlayers),
     ];
   let where =
@@ -362,6 +361,7 @@ export async function queryMatchups(
         combinationRow(c.members, c.conditional, c.baseline, meta.floor),
       ),
       q,
+      false,
     );
   }
   if (q.hideNotices)
@@ -380,6 +380,8 @@ export async function queryMatchups(
         }).length,
     );
   const { options, physicalResults, teams, ...publicMeta } = meta;
+  const eligibleTotal = rows.length;
+  if (q.mode === 'discover') rows = rankCombinations(rows, q);
   void options;
   void physicalResults;
   void teams;
@@ -388,5 +390,6 @@ export async function queryMatchups(
     request: q,
     rows: rows.slice(q.offset, q.offset + q.limit),
     total: rows.length,
+    eligibleTotal,
   };
 }

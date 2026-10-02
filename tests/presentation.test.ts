@@ -4,7 +4,18 @@ import {
   pokemonColor,
   spreadParts,
   monthLabel,
+  formatDifference,
 } from '../src/domain/presentation';
+test('difference display normalizes negative zero without changing raw membership or inventing unavailable values', () => {
+  assert.equal(formatDifference(0), '0.0 points');
+  assert.equal(formatDifference(-0), '0.0 points');
+  assert.equal(formatDifference(-0.00001), '0.0 points');
+  assert.equal(formatDifference(0.00001), '+0.0 points');
+  assert.equal(formatDifference(-1), '−1.0 points');
+  assert.equal(formatDifference(null), '—');
+  for (const n of [NaN, Infinity, -Infinity])
+    assert.equal(formatDifference(n, 'Unavailable'), 'Unavailable');
+});
 test('row colors follow canonical primary typing, including forms', () => {
   assert.equal(pokemonColor('rillaboom'), pokemonColor('venusaur'));
   assert.notEqual(pokemonColor('rillaboom'), pokemonColor('incineroar'));

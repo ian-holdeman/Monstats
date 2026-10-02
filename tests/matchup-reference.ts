@@ -127,7 +127,13 @@ export function referenceMatchups(d: PublishedDataset, q: MatchupRequest) {
         (r) =>
           r.sufficient &&
           r.sample.winRate !== null &&
-          (!q.b.length || r.key !== [...q.b].sort().join('+')),
+          (!q.b.length || r.key !== [...q.b].sort().join('+')) &&
+          (!q.b.length ||
+            (typeof r.difference === 'number' &&
+              Number.isFinite(r.difference) &&
+              (q.direction === 'worst'
+                ? r.difference < 0
+                : r.difference >= 0))),
       )
       .sort((a, b) => {
         if (q.sort === 'evidence')

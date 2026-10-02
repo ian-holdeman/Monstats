@@ -29,7 +29,10 @@ const article = (count = 20, regulation = 'M-C') =>
     Format: '1 Swiss rounds + asymmetrical top cut Open team lists',
   })
     .map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`)
-    .join('')}</table>`;
+    .join(
+      '',
+    )}</table><a href="https://rk9.gg/tournament/FR002-fiunEHp9wx4mh4">Original</a>`;
+const calendar = `<a href="${listing.article}">Frankfurt</a><a href="https://victoryroad.pro/2027-brisbane/">Brisbane</a>`;
 const names = [
   'Garchomp',
   'Raichu',
@@ -128,6 +131,30 @@ test('Masters roster, team-list keys and reciprocal rounds establish full covera
   assert.equal(reconcileRecords(event).eligible, 2);
   assert.equal(event.provenance?.sources.length, 3);
 });
+test('escaped mirror URLs still resolve original identity through roster keys and independent article links', () => {
+  const withoutLink = page().replace(
+    /<a href="https:\/\/rk9\.gg\/pairings\/[^\"]+">Original<\/a>/,
+    '',
+  );
+  const event = normalizeOfficial(listing, article(), withoutLink, []);
+  assert.equal(event.id, 'rk9:FR002-fiunEHp9wx4mh4:masters');
+});
+test('a later runtime spread expression is never evaluated or mistaken for a second JSON roster', () => {
+  const html =
+    page() +
+    '\n<script>window.playersDataMap = { ...newPlayersDataMap };\n</script>';
+  assert.equal(normalizeOfficial(listing, article(), html, []).players, 20);
+  assert.throws(
+    () =>
+      normalizeOfficial(
+        listing,
+        article(),
+        page() + '\nwindow.playersDataMap = {};\n',
+        [],
+      ),
+    /ambiguous/,
+  );
+});
 test('combined attendance, wrong divisions, contradictory counts and selectively published teams are excluded', () => {
   assert.throws(
     () => normalizeOfficial(listing, article(), page(payload(), 170), []),
@@ -218,8 +245,11 @@ test('round results require an independently corroborated completed final', () =
   );
 });
 test('discovery keeps current-season types and refuses unaudited pagination', () => {
-  assert.equal(discoverOfficial(index)[0].article, listing.article);
-  assert.equal(discoverOfficial(index.replaceAll('2027', '2026')).length, 0);
+  assert.equal(discoverOfficial(index)[0].article, null);
+  assert.equal(
+    discoverOfficial(index.replaceAll('2027', '2026'), '2027').length,
+    0,
+  );
   assert.throws(
     () => discoverOfficial(index + '<a href="?page=2">More</a>'),
     /pagination/,
@@ -235,6 +265,7 @@ test('official correction revisits, durable cache recovery, disappearing listing
   ) => {
     reads++;
     const url = String(input);
+    if (url.includes('season-calendar')) return new Response(calendar);
     if (url === listing.article) return new Response(article());
     if (init?.method === 'POST') {
       assert.equal(init.body, `id=${listing.id}&division=Masters`);
@@ -252,10 +283,10 @@ test('official correction revisits, durable cache recovery, disappearing listing
     provider,
   );
   assert.equal(events.length, 1);
-  assert.equal(reads, 3);
+  assert.equal(reads, 4);
   publish(store, events, options.asOf, 'test');
   await collectOfficial(store, options.asOf, report(), {}, provider);
-  assert.equal(reads, 4);
+  assert.equal(reads, 6);
   correction = true;
   const corrected = await collectOfficial(
     store,
@@ -265,7 +296,7 @@ test('official correction revisits, durable cache recovery, disappearing listing
     provider,
   );
   assert.equal(corrected[0].registrations.filter((r) => r.slots).length, 19);
-  assert.equal(reads, 7);
+  assert.equal(reads, 10);
   publish(store, corrected, '2026-10-01T18:00:00Z', 'corrected');
   const failure = report();
   const saved = await collectOfficial(
@@ -298,7 +329,7 @@ test('official correction revisits, durable cache recovery, disappearing listing
         (async () => new Response('', { status: 403 })) as typeof fetch,
       )
     ).length,
-    0,
+    1,
   );
   store.close();
 });
@@ -307,14 +338,18 @@ test('unsupported future regulation evidence is snapshotted and never relabeled 
   const r = report();
   const provider = (async (input: string | URL | Request) =>
     new Response(
-      String(input) === listing.article ? article(20, 'M-D') : index,
+      String(input).includes('season-calendar')
+        ? calendar
+        : String(input) === listing.article
+          ? article(20, 'M-D')
+          : index,
     )) as typeof fetch;
   const events = await collectOfficial(store, options.asOf, r, {}, provider);
   assert.equal(events.length, 0);
   assert.ok(
     r.excluded.some((e) => e.reason === 'unsupported-or-inactive-regulation'),
   );
-  assert.equal(store.snapshotCount(), 2);
+  assert.equal(store.snapshotCount(), 3);
   store.close();
 });
 test('forced bounded collections restart after durable event completion instead of refreshing the same event forever', async () => {
@@ -331,6 +366,8 @@ test('forced bounded collections restart after durable event completion instead 
     input: string | URL | Request,
     init?: RequestInit,
   ) => {
+    if (String(input).includes('season-calendar'))
+      return new Response(calendar);
     if (init?.method === 'POST') {
       teamReads++;
       return new Response(
@@ -340,7 +377,9 @@ test('forced bounded collections restart after durable event completion instead 
     if (String(input).includes('victoryroad.pro'))
       return new Response(
         String(input).includes('brisbane')
-          ? article().replaceAll('Frankfurt', 'Brisbane')
+          ? article()
+              .replaceAll('Frankfurt', 'Brisbane')
+              .replaceAll('FR002-fiunEHp9wx4mh4', 'BR002-IU5yO1W76UpdyA')
           : article(),
       );
     return new Response(index + brIndex);
@@ -350,7 +389,7 @@ test('forced bounded collections restart after durable event completion instead 
     store,
     options.asOf,
     firstReport,
-    { force: true, maxReads: 3 },
+    { force: true, maxReads: 4 },
     provider,
   );
   assert.equal(first.length, 1);
@@ -359,7 +398,7 @@ test('forced bounded collections restart after durable event completion instead 
     store,
     '2026-09-30T18:01:00Z',
     report(),
-    { force: true, maxReads: 3 },
+    { force: true, maxReads: 4 },
     provider,
   );
   assert.equal(resumed.length, 2);
@@ -375,6 +414,7 @@ test('provider failure does not block independently verified official updates an
     init?: RequestInit,
   ) => {
     const url = String(input);
+    if (url.includes('season-calendar')) return new Response(calendar);
     if (url === listing.article) return new Response(article());
     if (url.startsWith('https://pokedata.ovh/'))
       return new Response(init?.method === 'POST' ? page() : index);

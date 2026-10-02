@@ -383,10 +383,17 @@
   text-align: right;
 }
 .matchup-table tbody tr {
-  background: transparent;
+  background:
+    linear-gradient(178deg, #ffffff12, transparent 40%),
+    linear-gradient(
+      105deg,
+      rgb(var(--row-color) / 0.32),
+      rgb(var(--row-color) / 0.1) 50%,
+      #151a24 82%
+    );
 }
 .matchup-table tbody tr:hover {
-  background: #ffffff05;
+  filter: brightness(1.12);
 }
 .matchup-table td {
   height: 54px;

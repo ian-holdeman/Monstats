@@ -18,13 +18,6 @@ const store = new Store(databasePath()),
 process.once('SIGINT', () => controller.abort());
 process.once('SIGTERM', () => controller.abort());
 const owner = `ladder-cli:${process.pid}`;
-if (!store.acquireLease(owner, Date.now(), 3600000)) {
-  store.close();
-  throw new Error('Another ingestion process is active');
-}
-const lease = setInterval(() => {
-  store.acquireLease(owner, Date.now(), 3600000);
-}, 60000);
 try {
   for (const environment of (env === 'both'
     ? ['showdown', 'champions']
@@ -113,7 +106,6 @@ try {
     }
   }
 } finally {
-  clearInterval(lease);
   store.releaseLease(owner);
   store.close();
 }

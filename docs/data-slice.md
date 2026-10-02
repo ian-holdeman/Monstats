@@ -2,7 +2,7 @@
 
 Implemented locally for review. No deployment, paid service, OS scheduled task or hosted resource was created.
 
-This report records the earlier community-data slice. The subsequent [official Masters report](official-coverage.md) adds three Regionals and documents safe regulation transitions; use it for current publication totals and official-source disposition.
+This report records the earlier community-data slice and its historical rolling-window implementation. The [October 2 operating report](ingestion-operations.md) supersedes its worker commands, interval and transition behavior; the [official Masters report](official-coverage.md) preserves official evidence. Historical counts below describe their original publication.
 
 ## Observed coverage
 

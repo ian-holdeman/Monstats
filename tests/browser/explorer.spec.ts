@@ -155,7 +155,7 @@ test('usage search, sort, filters, detail navigation and keyboard return', async
     name: 'Best performers into Incineroar teams',
     exact: true,
   });
-  await expect(best.getByRole('row')).toHaveCount(4);
+  await expect(best.getByRole('row')).toHaveCount(5);
   await expect(best.getByRole('row').nth(1)).toContainText('Rillaboom');
   expect(
     (await best.locator('tbody > tr').first().boundingBox())!.height,
@@ -171,8 +171,9 @@ test('usage search, sort, filters, detail navigation and keyboard return', async
   await expect(
     best.getByRole('columnheader', { name: 'Change vs overall' }),
   ).toHaveAttribute('aria-sort', 'descending');
-  await best.getByRole('button', { name: 'View all 4' }).click();
-  await expect(best.getByRole('row')).toHaveCount(5);
+  await expect(
+    best.getByRole('button', { name: /View all|Show top 3/ }),
+  ).toHaveCount(0);
   const sneasler = best.getByRole('row').filter({
     has: page.getByRole('button', { name: 'Sneasler', exact: true }),
   });
@@ -183,9 +184,7 @@ test('usage search, sort, filters, detail navigation and keyboard return', async
     name: 'Worst performers into Incineroar teams',
     exact: true,
   });
-  await expect(
-    worst.getByRole('columnheader', { name: 'Change vs overall' }),
-  ).toHaveAttribute('aria-sort', 'ascending');
+  await expect(worst).toContainText('No qualifying negative matchups');
   await page
     .getByRole('button', { name: 'Select Rillaboom', exact: true })
     .click();
@@ -465,7 +464,13 @@ test('an atomic regulation switch keeps displayed data and regulation together a
           key,
           {
             ...v,
-            options: { ...v.options, regulation: 'M-D' },
+            options: {
+              ...v.options,
+              regulation: 'M-D',
+              interval: v.options.interval
+                ? { ...v.options.interval, regulation: 'M-D' }
+                : undefined,
+            },
             pokemon: v.pokemon.map((p) =>
               p.id === 'incineroar' ? { ...p, usage: 98 } : p,
             ),

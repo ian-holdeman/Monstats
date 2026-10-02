@@ -1,17 +1,16 @@
 import { z } from 'zod';
 import { normalizeSlot, NORMALIZATION_VERSION } from '../domain/normalize';
 import { eligibility, provenance } from '../domain/sources';
-import { requireRegulation } from '../domain/regulations';
+import { coverageInterval, requireRegulation } from '../domain/regulations';
 import { reconcileRecords } from '../domain/reconciliation';
 import type {
   CollectionReport,
   NormalizedEvent,
   Snapshot,
 } from '../domain/types';
-import { fetchBounded, type CollectorOptions } from './collector';
+import { fetchBounded, failureClass, type CollectorOptions } from './collector';
 import { Store } from './store';
 const origin = 'https://pokedata.ovh/standings2/';
-const season = '2027';
 const plain = (html: string) =>
   html
     .replace(/<script\b[\s\S]*?<\/script>/gi, '')
@@ -23,39 +22,44 @@ const plain = (html: string) =>
 // JSON literals are parsed as data. Provider JavaScript is never evaluated or reused.
 function literal(html: string, label: string) {
   const prefix = `${label} = `;
-  const start = html.indexOf(prefix);
-  if (start < 0 || html.indexOf(prefix, start + prefix.length) >= 0)
-    throw new Error(`Missing or ambiguous ${label}`);
-  const tail = html.slice(start + prefix.length);
-  const end =
-    tail.indexOf(';\n') >= 0 ? tail.indexOf(';\n') : tail.indexOf(';\r');
-  if (end < 0) throw new Error('Unrecognized embedded JSON boundary');
-  return JSON.parse(tail.slice(0, end));
+  const values: unknown[] = [];
+  let offset = 0;
+  while (true) {
+    const start = html.indexOf(prefix, offset);
+    if (start < 0) break;
+    offset = start + prefix.length;
+    const tail = html.slice(offset);
+    const end = tail.search(/;\r?\n/);
+    if (end < 0) continue;
+    try {
+      values.push(JSON.parse(tail.slice(0, end)));
+    } catch {
+      /* Runtime reassignment expressions are not JSON source evidence. */
+    }
+  }
+  if (values.length !== 1)
+    throw new Error(`Missing or ambiguous ${label} JSON literal`);
+  return values[0];
 }
 export type OfficialListing = {
   id: string;
   name: string;
-  type: 'regional' | 'special' | 'international';
+  type: 'regional' | 'special' | 'international' | 'worlds';
   article: string | null;
 };
-// These article identities were audited against the mirror's original RK9 links.
-const reviewed: Record<string, string> = {
-  '1000070': '2027-frankfurt',
-  '1000068': '2027-brisbane',
-  '1000034': '2027-baltimore',
-};
-const originalKeys: Record<string, string> = {
-  '1000070': 'FR002-fiunEHp9wx4mh4',
-  '1000068': 'BR002-IU5yO1W76UpdyA',
-  '1000034': 'BA002-JL3KVbvivVKNAc',
-};
-export function discoverOfficial(html: string): OfficialListing[] {
+export function discoverOfficial(
+  html: string,
+  season?: string,
+): OfficialListing[] {
   const result: OfficialListing[] = [];
   for (const m of html.matchAll(
     /<div class="tournament vg"[\s\S]*?<div class="title">([^<]+)<\/div>[\s\S]*?<input type="hidden" name="id" value="(\d+)"/g,
   )) {
     const name = plain(m[1]);
-    if (!name.startsWith(`${season} `) || !name.includes('Pokémon VGC'))
+    if (
+      (season && !name.startsWith(`${season} `)) ||
+      !/Pokémon VGC|World Championships/.test(name)
+    )
       continue;
     const type = name.includes('Regional Championships')
       ? 'regional'
@@ -63,15 +67,15 @@ export function discoverOfficial(html: string): OfficialListing[] {
         ? 'special'
         : name.includes('International Championships')
           ? 'international'
-          : null;
+          : name.includes('World Championships')
+            ? 'worlds'
+            : null;
     if (!type) continue;
     const item: OfficialListing = {
       id: m[2],
       name,
       type,
-      article: reviewed[m[2]]
-        ? `https://victoryroad.pro/${reviewed[m[2]]}/`
-        : null,
+      article: null,
     };
     if (result.some((e) => e.id === item.id && e.name !== item.name))
       throw new Error('Conflicting official listing identity');
@@ -85,6 +89,8 @@ export function discoverOfficial(html: string): OfficialListing[] {
   return result;
 }
 export function officialMetadata(listing: OfficialListing, article: string) {
+  const season = listing.name.match(/^(20\d{2}) /)?.[1];
+  if (!season) throw new Error('unresolved-championship-season');
   const rows = new Map(
     [...article.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((m) => {
       const cells = [
@@ -102,7 +108,7 @@ export function officialMetadata(listing: OfficialListing, article: string) {
     throw new Error('unresolved-regulation-or-season');
   const count = rows
     .get('Attendance')
-    ?.match(/^([\d,]+)(?: players)?\s*(?:\(MA\)|MA)(?:\s|$)/);
+    ?.match(/^([\d,]+)(?: (?:qualified )?players)?\s*(?:\(MA\)|MA)(?:\s|$)/);
   // Parenthesized MA and plain MA are both observed; combined attendance is never used.
   const players = count ? Number(count[1].replaceAll(',', '')) : NaN;
   if (eligibility(players)) throw new Error(eligibility(players)!);
@@ -122,10 +128,17 @@ export function officialMetadata(listing: OfficialListing, article: string) {
   ];
   const date = rows
     .get('Date')
-    ?.match(/^(\d{1,2})(?:[–-]\d{1,2})? ([A-Za-z]+) (\d{4})$/);
-  const month = months.indexOf(date?.[2] ?? '') + 1;
+    ?.match(/^(\d{1,2})(?:[–-](\d{1,2}))? ([A-Za-z]+) (\d{4})$/);
+  const month = months.indexOf(date?.[3] ?? '') + 1;
   if (!date || !month) throw new Error('unresolved-official-date');
-  const dateString = `${date[3]}-${String(month).padStart(2, '0')}-${date[1].padStart(2, '0')}T00:00:00.000Z`;
+  const dateString = `${date[4]}-${String(month).padStart(2, '0')}-${date[1].padStart(2, '0')}T00:00:00.000Z`;
+  const endsAt = new Date(
+    Date.parse(
+      `${date[4]}-${String(month).padStart(2, '0')}-${(date[2] ?? date[1]).padStart(2, '0')}T00:00:00.000Z`,
+    ) +
+      86400000 -
+      1,
+  ).toISOString();
   if (new Date(dateString).toISOString() !== dateString)
     throw new Error('Invalid official date');
   const rounds = rows
@@ -133,15 +146,16 @@ export function officialMetadata(listing: OfficialListing, article: string) {
     ?.match(/^(\d+)(?:\+(\d+))? Swiss rounds \+ asymmetrical(?: X-2)? top cut/);
   if (!rounds) throw new Error('unresolved-official-phases');
   const eventLabel = rows.get('Event') ?? '';
-  const city = listing.name
-    .replace(/^2027 /, '')
-    .replace(/ Pokémon VGC.*$/, '');
-  if (!eventLabel.startsWith(`2027 ${city} `))
+  const canonicalName = (name: string) =>
+    name.replace(' Pokémon VGC', '').replace(/\s+/g, ' ').trim();
+  if (canonicalName(eventLabel) !== canonicalName(listing.name))
     throw new Error('unresolved-official-metadata-identity');
   return {
     regulation,
     players,
     date: dateString,
+    endsAt,
+    season,
     swiss: Number(rounds[1]) + Number(rounds[2] ?? 0),
     sheet: rows.get('Format')?.includes('Open team lists')
       ? ('open' as const)
@@ -196,7 +210,10 @@ export function normalizeOfficial(
     plain(html.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '') !== listing.name
   )
     throw new Error('unresolved-masters-division-or-identity');
-  const originalIds = [
+  const raw = z
+    .record(z.string(), z.unknown())
+    .parse(literal(html, 'window.playersDataMap'));
+  const linkIds = [
     ...new Set(
       [
         ...html.matchAll(
@@ -205,13 +222,27 @@ export function normalizeOfficial(
       ].map((m) => m[1]),
     ),
   ];
+  const rosterIds = [
+    ...new Set(
+      Object.values(raw).flatMap((value) => {
+        const p = participant.safeParse(value);
+        const ref = p.success ? p.data.o?.['Team List'] : undefined;
+        const id = ref?.match(/^([A-Za-z0-9-]+)\/[A-Za-z0-9]+$/)?.[1];
+        return id ? [id] : [];
+      }),
+    ),
+  ];
+  const originalIds = rosterIds.length ? rosterIds : linkIds;
   if (originalIds.length !== 1) throw new Error('unresolved-original-event');
   const original = originalIds[0];
-  if (originalKeys[listing.id] !== original)
+  if (linkIds.length && !linkIds.includes(original))
     throw new Error('conflicting-original-event-identity');
-  const raw = z
-    .record(z.string(), z.unknown())
-    .parse(literal(html, 'window.playersDataMap'));
+  if (
+    !article.includes(`https://rk9.gg/tournament/${original}`) &&
+    !article.includes(`https://rk9.gg/roster/${original}`) &&
+    !article.includes(`https://rk9.gg/pairings/${original}`)
+  )
+    throw new Error('conflicting-original-event-identity');
   if (Object.keys(raw).length !== count)
     throw new Error('incomplete-official-roster');
   const parsed = new Map<number, z.infer<typeof participant>>();
@@ -220,6 +251,7 @@ export function normalizeOfficial(
     name: listing.name,
     regulation: meta.regulation,
     date: meta.date,
+    endsAt: meta.endsAt,
     players: count,
     completed: false,
     platform: 'SWITCH',
@@ -244,7 +276,7 @@ export function normalizeOfficial(
       population: 'registrations',
       division: 'masters',
       eventType: listing.type,
-      season,
+      season: meta.season,
       roster: 'complete',
       regulationEvidence: listing.article!,
       divisionEvidence: `${origin} (id=${listing.id}, division=Masters)`,
@@ -513,15 +545,13 @@ export async function collectOfficial(
   fetcher: typeof fetch = fetch,
 ) {
   const regulation = options.regulation ?? store.activeRegulation();
-  requireRegulation(regulation, store.config);
-  const checkpoint = `official:${season}:${regulation}:masters:${NORMALIZATION_VERSION}`;
+  const { season } = requireRegulation(regulation, store.config);
+  const checkpoint = `official:${season}:${regulation}:masters:${NORMALIZATION_VERSION}${options.finalJob ? ':' + options.finalJob : ''}`;
   const savedProgress = store.state<{ asOf: string; completed: string[] }>(
     `${checkpoint}:progress`,
   );
   const progress =
-    savedProgress &&
-    Date.parse(asOf) - Date.parse(savedProgress.asOf) >= 0 &&
-    Date.parse(asOf) - Date.parse(savedProgress.asOf) < 86400000
+    savedProgress && Date.parse(asOf) >= Date.parse(savedProgress.asOf)
       ? savedProgress
       : { asOf, completed: [] as string[] };
   let retryNeeded = false;
@@ -579,9 +609,12 @@ export async function collectOfficial(
     report.snapshots.push(ref);
     return { body, ref };
   };
-  const end = Date.parse(asOf),
-    start = end - 30 * 86400000;
-  const surviving = (store.current()?.events ?? []).filter(
+  const interval = coverageInterval(regulation, asOf, store.config);
+  const end = Date.parse(interval.cutoff),
+    start = Date.parse(interval.start);
+  const surviving = (
+    store.forRegulation(regulation, options.stage)?.events ?? []
+  ).filter(
     (e) =>
       e.regulation === regulation &&
       provenance(e).official === 'verified' &&
@@ -592,7 +625,38 @@ export async function collectOfficial(
   const refreshed = new Set<string>();
   try {
     const index = await read(origin);
-    const candidates = discoverOfficial(index.body);
+    const candidates = discoverOfficial(index.body, season);
+    const calendar = await read(
+      `https://victoryroad.pro/${season}-season-calendar/`,
+    );
+    const links = [
+      ...calendar.body.matchAll(
+        /href="(https:\/\/victoryroad\.pro\/[a-z0-9-]+\/)"/g,
+      ),
+    ].map((m) => m[1]);
+    for (const listing of candidates) {
+      const location = listing.name
+        .replace(/^20\d{2} /, '')
+        .replace(/ Pokémon VGC.*$/, '');
+      const label =
+        listing.type === 'international'
+          ? location
+              .split(' ')
+              .map((v) => v[0])
+              .join('')
+              .toLowerCase() + 'ic'
+          : location;
+      const slug =
+        listing.type === 'worlds'
+          ? `${season}-worlds`
+          : `${season}-${label
+              .toLowerCase()
+              .normalize('NFKD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/[^a-z0-9]+/g, '-')}`;
+      const url = `https://victoryroad.pro/${slug}/`;
+      listing.article = links.includes(url) ? url : null;
+    }
     store.saveState(`${checkpoint}:listing`, {
       asOf,
       candidates,
@@ -610,14 +674,17 @@ export async function collectOfficial(
         continue;
       }
       const cached = store.cache(key),
-        age = end - Date.parse(cached?.retrievedAt ?? '');
+        age = Date.parse(asOf) - Date.parse(cached?.retrievedAt ?? '');
       if (
         (!options.force || progress.completed.includes(listing.id)) &&
         cached?.event &&
         cached.event.name === listing.name &&
         cached.event.regulation === regulation &&
         age >= 0 &&
-        age < 86400000 &&
+        age <
+          (end - Date.parse(cached.event.date) > 7 * 86400000
+            ? 7 * 86400000
+            : 86400000) &&
         Date.parse(cached.event.date) >= start &&
         Date.parse(cached.event.date) <= end
       ) {
@@ -625,8 +692,11 @@ export async function collectOfficial(
         report.cached++;
         continue;
       }
-      const article = await read(listing.article);
+      const workKey = `${checkpoint}:article:${listing.id}`;
+      let article = store.state<{ body: string; ref: Snapshot }>(workKey);
       try {
+        article ??= await read(listing.article);
+        store.saveState(workKey, article);
         const meta = officialMetadata(listing, article.body);
         if (meta.regulation !== regulation) {
           report.excluded.push({
@@ -651,20 +721,47 @@ export async function collectOfficial(
           page.ref,
         ]);
         store.saveCache(key, asOf, event);
+        store.clearState(workKey);
         events.set(event.id, event);
         refreshed.add(event.id);
         report.refreshed++;
         progress.completed.push(listing.id);
         store.saveState(`${checkpoint}:progress`, progress);
       } catch (error) {
-        retryNeeded = true;
-        report.discovery = 'partial';
+        const kind = failureClass(error);
+        if (options.signal?.aborted || kind === 'lease-contention') throw error;
+        retryNeeded ||= [
+          'request-budget',
+          'rate-limit',
+          'transient-failure',
+          'access-denied',
+        ].includes(kind);
+        if (retryNeeded) report.discovery = 'partial';
+        if (
+          ![
+            'request-budget',
+            'rate-limit',
+            'transient-failure',
+            'access-denied',
+          ].includes(kind)
+        ) {
+          store.saveCache(
+            key,
+            asOf,
+            null,
+            error instanceof Error ? error.message : kind,
+          );
+          store.clearState(workKey);
+        }
         report.excluded.push({
           id: listing.id,
-          reason:
-            error instanceof Error ? error.message : 'official-source-failure',
-          evidence: article.ref,
+          reason: kind,
+          evidence: {
+            snapshot: article?.ref ?? listing,
+            message: error instanceof Error ? error.message : kind,
+          },
         });
+        if (kind === 'request-budget' || kind === 'rate-limit') break;
       }
     }
   } catch (error) {

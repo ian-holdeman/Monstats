@@ -223,7 +223,7 @@ test('discovery supports all six sizes, valid mode sorts, and inspect direction'
     .click();
   const results = page.locator('.combination-results');
   await expect(results.getByRole('heading', { level: 2 })).toContainText(
-    'Best 1-Pokémon',
+    '1-Pokémon',
   );
   await expect(page.getByRole('combobox', { name: 'Sort by' })).toHaveValue(
     'difference',
@@ -235,12 +235,15 @@ test('discovery supports all six sizes, valid mode sorts, and inspect direction'
   await expect(results.locator('.combination-result').first()).toContainText(
     'Garchomp',
   );
-  await page
-    .getByRole('combobox', { name: 'Ranking', exact: true })
-    .selectOption('worst');
-  await expect(results.getByRole('heading', { level: 2 })).toContainText(
-    'Worst',
-  );
+  await expect(
+    results.getByRole('region', { name: 'Best combinations', exact: true }),
+  ).toBeVisible();
+  await expect(
+    results.getByRole('region', { name: 'Worst combinations', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('combobox', { name: 'Ranking', exact: true }),
+  ).toHaveCount(0);
   for (let k = 2; k <= 6; k++) {
     await page
       .getByRole('combobox', { name: 'Combination size' })
@@ -250,7 +253,7 @@ test('discovery supports all six sizes, valid mode sorts, and inspect direction'
     );
   }
   await expect(
-    results.getByRole('heading', { name: 'Insufficient evidence' }),
+    results.getByRole('heading', { name: 'Insufficient evidence' }).first(),
   ).toBeVisible();
   await page
     .getByRole('combobox', { name: 'Opponent mode' })

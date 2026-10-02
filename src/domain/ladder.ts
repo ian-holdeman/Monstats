@@ -1,3 +1,8 @@
+import {
+  championsContract,
+  configuredShowdown,
+  ladderSources,
+} from './ladder-contracts';
 import { z } from 'zod';
 import { normalizeSlot, NORMALIZATION_VERSION } from './normalize';
 import { setLabel } from './set-identities';
@@ -42,7 +47,7 @@ export type LadderDraft = {
   schemaVersion: typeof LADDER_VERSION;
   identityVersion: string;
   environment: LadderEnvironment;
-  regulation: 'M-B' | 'M-C';
+  regulation: string;
   format: 'BO1' | 'BO3';
   formatId: string;
   period: string;
@@ -88,7 +93,7 @@ const schema = z.object({
   schemaVersion: z.literal(LADDER_VERSION),
   identityVersion: z.string().min(1),
   environment: z.enum(['showdown', 'champions']),
-  regulation: z.enum(['M-B', 'M-C']),
+  regulation: z.string().regex(/^M-[A-Z]$/),
   format: z.enum(['BO1', 'BO3']),
   formatId: z.string().min(1),
   period: z.string().min(1),
@@ -202,9 +207,10 @@ function validateMetadata(
   >,
 ) {
   if (d.environment === 'champions') {
+    const contract = championsContract(d.season ?? '');
     if (
-      d.regulation !== 'M-C' ||
-      d.season !== 'M-6' ||
+      d.regulation !== contract.regulation ||
+      d.season !== contract.season ||
       d.formatId !== 'championsdoubles' ||
       d.format !== 'BO1' ||
       d.month !== null ||
@@ -212,9 +218,9 @@ function validateMetadata(
       d.battles !== null ||
       d.averageWeight !== null ||
       !d.capturedAt ||
-      d.period !== `M-6@${d.capturedAt}` ||
-      d.periodStart !== '2026-09-09T02:00:00.000Z' ||
-      d.periodEnd !== '2026-10-07T01:59:00.000Z' ||
+      d.period !== `${contract.season}@${d.capturedAt}` ||
+      d.periodStart !== contract.startsAt ||
+      d.periodEnd !== contract.endsAt ||
       d.capturedAt < d.periodStart ||
       d.capturedAt > d.periodEnd
     )
@@ -310,12 +316,7 @@ function identity(rawName: string) {
   return { id: slot.id, name: slot.name, rawName };
 }
 export function showdownContract(formatId: string) {
-  const m = /^gen9championsvgc2026regm([bc])(bo3)?$/.exec(formatId);
-  if (!m) throw new Error('Unsupported Showdown doubles format');
-  return {
-    regulation: (m[1] === 'c' ? 'M-C' : 'M-B') as 'M-B' | 'M-C',
-    format: (m[2] ? 'BO3' : 'BO1') as 'BO1' | 'BO3',
-  };
+  return configuredShowdown(formatId);
 }
 export function discoverShowdown(html: string, month: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
@@ -324,14 +325,13 @@ export function discoverShowdown(html: string, month: string) {
     string,
     { month: string; formatId: string; rating: number }
   >();
-  for (const m of html.matchAll(
-    /href="(gen9championsvgc2026regm[bc](?:bo3)?)-(0|1500|1630|1760)\.txt"/g,
-  ))
-    found.set(m[1] + '-' + m[2], {
-      month,
-      formatId: m[1],
-      rating: Number(m[2]),
-    });
+  for (const m of html.matchAll(/href="([a-z0-9]+)-(0|1500|1630|1760)\.txt"/g))
+    if (Object.hasOwn(ladderSources.showdown.formats, m[1]))
+      found.set(m[1] + '-' + m[2], {
+        month,
+        formatId: m[1],
+        rating: Number(m[2]),
+      });
   return [...found.values()];
 }
 const numericMap = z.record(z.string(), finite);
@@ -531,6 +531,10 @@ const championsSchema = z.object({
 export function parseChampions(
   inputs: unknown[],
   snapshots: Snapshot[],
+  contract = championsContract(
+    undefined,
+    Date.parse(snapshots[0]?.retrievedAt ?? new Date().toISOString()),
+  ),
 ): LadderDraft {
   const data = inputs.map((v) => championsSchema.parse(v)),
     first = data[0];
@@ -539,8 +543,8 @@ export function parseChampions(
     first.champions_updated.replace(' at ', ' '),
   ).toISOString();
   // This reviewed contract is evidenced by official M-C and M-6 notices, not an inferred calendar month.
-  const start = '2026-09-09T02:00:00.000Z',
-    end = '2026-10-07T01:59:00.000Z';
+  const start = contract.startsAt,
+    end = contract.endsAt;
   if (capturedAt < start || capturedAt > end)
     throw new Error('Champions season contract needs a new source audit');
   const listKey = JSON.stringify(first.pokemon_names.map((v) => v.slice(0, 2)));
@@ -660,18 +664,17 @@ export function parseChampions(
     schemaVersion: LADDER_VERSION,
     identityVersion: NORMALIZATION_VERSION,
     environment: 'champions',
-    regulation: 'M-C',
+    regulation: contract.regulation,
     format: 'BO1',
     formatId: 'championsdoubles',
-    period: `M-6@${capturedAt}`,
-    periodLabel: `M-6 · ${capturedAt.slice(0, 10)}`,
+    period: `${contract.season}@${capturedAt}`,
+    periodLabel: `${contract.season} · ${capturedAt.slice(0, 10)}`,
     month: null,
-    season: 'M-6',
+    season: contract.season,
     capturedAt,
     periodStart: start,
     periodEnd: end,
-    periodBasis:
-      'Official ranked season M-6 / M-C; the capture response does not specify the underlying Battle Data aggregation window.',
+    periodBasis: `Official ranked season ${contract.season} / ${contract.regulation}; the capture response does not specify the underlying Battle Data aggregation window.`,
     rating: null,
     battles: null,
     averageWeight: null,

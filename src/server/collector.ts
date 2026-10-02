@@ -6,7 +6,7 @@ import {
   normalizeEvent,
 } from '../domain/normalize';
 import { eligibility, provenance } from '../domain/sources';
-import { requireRegulation } from '../domain/regulations';
+import { coverageInterval, requireRegulation } from '../domain/regulations';
 import { Store } from './store';
 import type {
   CollectionReport,
@@ -34,6 +34,8 @@ type Progress = {
   completed: string[];
   snapshots: Snapshot[];
   pageHashes: string[];
+  workDone?: boolean;
+  processed?: string[];
 };
 export type CollectorOptions = {
   regulation?: string;
@@ -43,7 +45,25 @@ export type CollectorOptions = {
   force?: boolean;
   heartbeat?: () => void;
   signal?: AbortSignal;
+  finalJob?: string;
+  leaseOwner?: string;
 };
+export function failureClass(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/lease|Another ingestion/.test(message)) return 'lease-contention';
+  if (/budget/i.test(message)) return 'request-budget';
+  if (/429|cooldown|rate.limit/i.test(message)) return 'rate-limit';
+  if (/HTTP 40[13]/i.test(message)) return 'access-denied';
+  if (/HTTP 5\d\d|fetch|network|timeout|aborted/i.test(message))
+    return 'transient-failure';
+  if (
+    /HTTP 40[134]|unsupported|unresolved|unrecognized|incompatible|not-confirmed|floor/i.test(
+      message,
+    )
+  )
+    return 'unsupported-evidence';
+  return 'terminal-validation';
+}
 export function retryDelay(value: string | null, now = Date.now()) {
   if (!value) return 1000;
   const seconds = Number(value);
@@ -132,20 +152,21 @@ export async function collect(
 ): Promise<NormalizedEvent[]> {
   const regulation = options.regulation ?? store.activeRegulation();
   requireRegulation(regulation, store.config);
-  const progressKey = `limitless:${regulation}:progress`;
-  const end = Date.parse(asOf),
-    start = end - 30 * 86400000;
+  const progressKey = `limitless:${regulation}:progress${options.finalJob ? ':' + options.finalJob : ''}`;
+  const interval = coverageInterval(regulation, asOf, store.config);
+  const end = Date.parse(interval.cutoff),
+    start = Date.parse(interval.start);
   if (!Number.isFinite(end)) throw new Error('Invalid collection window');
   const maxReads = options.maxReads ?? 500;
   if (!Number.isInteger(maxReads) || maxReads < 1 || maxReads > 10000)
     throw new Error('Invalid request budget');
   const saved =
     store.state<Progress>(progressKey) ??
-    (regulation === 'M-C' ? store.state<Progress>('limitless-progress') : null);
+    (regulation === 'M-C' && !options.finalJob
+      ? store.state<Progress>('limitless-progress')
+      : null);
   const progress: Progress =
-    saved &&
-    end - Date.parse(saved.asOf) >= 0 &&
-    end - Date.parse(saved.asOf) < 86400000
+    saved && !saved.workDone && end >= Date.parse(saved.asOf)
       ? saved
       : {
           asOf,
@@ -228,7 +249,18 @@ export async function collect(
       const { body, ref } = await read(
         `/api/tournaments?game=VGC&format=${regulation}&limit=50&page=${progress.apiPage}`,
       );
-      const list = z.array(listing).parse(JSON.parse(body));
+      const raw = z.array(z.unknown()).parse(JSON.parse(body));
+      const list: Listing[] = [];
+      for (const value of raw) {
+        const parsed = listing.safeParse(value);
+        if (parsed.success) list.push(parsed.data);
+        else
+          report.excluded.push({
+            id: 'malformed-listing',
+            reason: 'terminal-validation',
+            evidence: { value, snapshot: ref },
+          });
+      }
       if (list.length && progress.pageHashes.includes(ref.checksum))
         throw new Error('API pagination repeated a page; coverage unresolved');
       progress.pageHashes.push(ref.checksum);
@@ -240,7 +272,7 @@ export async function collect(
           );
         if (!previous) progress.candidates.push(entry);
       }
-      progress.apiDone = !list.length;
+      progress.apiDone = !raw.length;
       progress.apiPage++;
       persist();
     }
@@ -268,7 +300,8 @@ export async function collect(
     report.discovery = 'complete';
     const completed = new Set(progress.completed);
     const events = new Map<string, NormalizedEvent>();
-    for (const event of store.current()?.events ?? [])
+    for (const event of store.forRegulation(regulation, options.stage)
+      ?.events ?? [])
       if (
         event.regulation === regulation &&
         provenance(event).official !== 'verified' &&
@@ -278,7 +311,15 @@ export async function collect(
       )
         events.set(event.id, event);
     const observed = new Set<string>();
-    for (const entry of progress.candidates) {
+    progress.processed ??= [];
+    const candidates = [...progress.candidates].sort((a, b) => {
+      const ca = store.cache(`limitless:${a.id}:${regulation}`),
+        cb = store.cache(`limitless:${b.id}:${regulation}`);
+      return (
+        Number(!!ca) - Number(!!cb) || Date.parse(b.date) - Date.parse(a.date)
+      );
+    });
+    for (const entry of candidates) {
       observed.add(entry.id);
       const excluded = (reason: string, evidence: unknown = entry) => {
         report.excluded.push({ id: entry.id, reason, evidence });
@@ -311,13 +352,29 @@ export async function collect(
       const cached =
         store.cache(cacheKey) ??
         (regulation === 'M-C' ? store.cache(entry.id) : null);
-      const cacheAge = end - Date.parse(cached?.retrievedAt ?? '');
+      const cacheAge = Date.parse(asOf) - Date.parse(cached?.retrievedAt ?? '');
+      const ttl =
+        end - Date.parse(entry.date) > 7 * 86400000 ? 7 * 86400000 : 86400000;
       if (
         !options.force &&
         cached &&
+        !cached.event &&
+        cacheAge >= 0 &&
+        cacheAge < ttl
+      ) {
+        report.excluded.push({
+          id: entry.id,
+          reason: cached.reason ?? 'terminal-validation',
+          evidence: entry,
+        });
+        continue;
+      }
+      if (
+        (!options.force || progress.processed.includes(entry.id)) &&
+        cached &&
         cached.event?.regulation === regulation &&
         cacheAge >= 0 &&
-        cacheAge < 86400000 &&
+        (cacheAge < ttl || progress.processed.includes(entry.id)) &&
         cached.event?.date === entry.date &&
         cached.event.players === entry.players
       ) {
@@ -325,54 +382,99 @@ export async function collect(
         report.cached++;
         continue;
       }
-      const offset = progress.snapshots.length;
-      const details = JSON.parse(
-        (await read(`/api/tournaments/${entry.id}/details`)).body,
-      );
-      if (
-        details.id !== entry.id ||
-        details.format !== regulation ||
-        details.date !== entry.date
-      )
-        throw new Error('Source event identity changed during collection');
-      if (details.players !== entry.players) {
-        excluded('contradictory-entrant-count', { listing: entry, details });
-        store.saveCache(cacheKey, asOf, null, 'contradictory-entrant-count');
-        continue;
+      const workKey = `limitless-work:${regulation}:${entry.id}`;
+      const signature = JSON.stringify(entry);
+      const savedWork = store.state<{
+        signature: string;
+        reads: Record<string, { body: string; ref: Snapshot }>;
+      }>(workKey);
+      const work =
+        savedWork?.signature === signature
+          ? savedWork
+          : {
+              signature,
+              reads: {} as Record<string, { body: string; ref: Snapshot }>,
+            };
+      const eventRead = async (path: string) => {
+        if (work.reads[path]) return work.reads[path];
+        const result = await read(path);
+        work.reads[path] = result;
+        store.saveState(workKey, work);
+        return result;
+      };
+      try {
+        const details = JSON.parse(
+          (await eventRead(`/api/tournaments/${entry.id}/details`)).body,
+        );
+        if (
+          details.id !== entry.id ||
+          details.format !== regulation ||
+          details.date !== entry.date
+        )
+          throw new Error('Source event identity changed during collection');
+        if (details.players !== entry.players) {
+          excluded('contradictory-entrant-count', { listing: entry, details });
+          store.saveCache(cacheKey, asOf, null, 'contradictory-entrant-count');
+          continue;
+        }
+        if (
+          details.platform !== 'SWITCH' ||
+          details.isPublic !== true ||
+          details.decklists !== true ||
+          (details.specialRules?.length ?? 0) ||
+          (details.bannedCards?.length ?? 0)
+        ) {
+          excluded('unsupported-event', { listing: entry, details });
+          store.saveCache(cacheKey, asOf, null, 'unsupported-event');
+          continue;
+        }
+        const standings = JSON.parse(
+          (await eventRead(`/api/tournaments/${entry.id}/standings`)).body,
+        );
+        const pairings = JSON.parse(
+          (await eventRead(`/api/tournaments/${entry.id}/pairings`)).body,
+        );
+        const page = (await eventRead(`/tournament/${entry.id}`)).body;
+        const event = normalizeEvent(
+          details,
+          standings,
+          pairings,
+          classifySheet(page, `${origin}/tournament/${entry.id}`),
+          Object.values(work.reads).map((r) => r.ref),
+          true,
+        );
+        store.saveCache(cacheKey, asOf, event);
+        events.set(entry.id, event);
+        report.refreshed++;
+        progress.processed.push(entry.id);
+        store.clearState(workKey);
+        persist();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (options.signal?.aborted || /budget|cooldown|lease/i.test(reason))
+          throw error;
+        const transient = /HTTP|fetch|network|timeout/i.test(reason);
+        report.excluded.push({
+          id: entry.id,
+          reason: transient ? 'transient-failure' : 'terminal-validation',
+          evidence: {
+            message: reason,
+            snapshots: Object.values(work.reads).map((r) => r.ref),
+          },
+        });
+        if (transient) report.discovery = 'partial';
+        else {
+          store.saveCache(cacheKey, asOf, null, reason);
+          store.clearState(workKey);
+        }
+        if (events.has(entry.id)) report.carriedForward.push(entry.id);
+        persist();
       }
-      if (
-        details.platform !== 'SWITCH' ||
-        details.isPublic !== true ||
-        details.decklists !== true ||
-        (details.specialRules?.length ?? 0) ||
-        (details.bannedCards?.length ?? 0)
-      ) {
-        excluded('unsupported-event', { listing: entry, details });
-        store.saveCache(cacheKey, asOf, null, 'unsupported-event');
-        continue;
-      }
-      const standings = JSON.parse(
-        (await read(`/api/tournaments/${entry.id}/standings`)).body,
-      );
-      const pairings = JSON.parse(
-        (await read(`/api/tournaments/${entry.id}/pairings`)).body,
-      );
-      const page = (await read(`/tournament/${entry.id}`)).body;
-      const event = normalizeEvent(
-        details,
-        standings,
-        pairings,
-        classifySheet(page, `${origin}/tournament/${entry.id}`),
-        progress.snapshots.slice(offset),
-        true,
-      );
-      store.saveCache(cacheKey, asOf, event);
-      events.set(entry.id, event);
-      report.refreshed++;
-      persist();
     }
     for (const id of events.keys())
       if (!observed.has(id)) report.carriedForward.push(id);
+    progress.workDone = true;
+    persist();
     return [...events.values()];
   } catch (error) {
     persist();

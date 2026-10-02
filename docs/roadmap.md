@@ -1,6 +1,8 @@
 # Roadmap
 
-The owner accepted the local MVP and completed dynamic matchup calculator on October 1, 2026. Tournament, Ladder, Archive and dynamic Matchups browsing are implemented locally. Matchups supports observed tournament performance of one to six Pokémon on either side, including overall performance and best/worst combination discovery. See the [calculation contract and implementation report](dynamic-matchups.md). The next slice awaits the owner's scope. Hosting and deployment remain deferred; further implementation requires agreed scope.
+The owner accepted the local MVP and completed dynamic matchup calculator on October 1, 2026, then accepted housekeeping and production ingestion on October 2. Tournament, Ladder, Archive and dynamic Matchups browsing are implemented locally. Matchups supports observed tournament performance of one to six Pokémon on either side, including overall performance and best/worst combination discovery. See the [calculation contract and implementation report](dynamic-matchups.md). Hosting is the final planned slice; its [preparation and launch requirements](next-slice.md) target zero additional monthly cost and begin with the owner's existing Google Cloud setup. Exact resources, account/credit headroom and URL choice require verification before provisioning.
+
+The October 2 production-ingestion slice implements daily full-regulation collection, reviewed automatic transitions, immediate Archive placement, one bounded final poll, durable incremental work, compiled workers, diagnostics and isolated recovery/capacity verification. See [operating commands and actual coverage](ingestion-operations.md). Infrastructure provisioning and production access/reuse review remain deployment work.
 
 The initial local draft covers the sketch-based usage/detail interface, real bounded M-C data, separate sheet populations, comparable series performance, evidence-based raw rankings, preserved snapshots/slots/quarantine, atomic SQLite publication and offline/browser verification.
 
@@ -10,7 +12,7 @@ Deferred work:
 
 - Extend audited official Masters coverage beyond the three integrated Regionals when accessible permitted records exist.
 - Improve sheet evidence and administrative-outcome detection if richer sources become available.
-- Verify an incoming regulation's actual source contract before enabling it through the implemented staging/activation workflow. M-D remains disabled.
+- Verify incoming UTC regulation/environment/source contracts before enabling automatic transitions. M-D remains disabled.
 - Extend build summaries only where sources expose reliable full set fields.
 - Add an audited public Showdown replay performance cohort with complete BO3 series recovery, kept separate from monthly usage.
 - Review future cartridge seasons and coherent historical exports; current Champions rank/build capture and monthly M-B/M-C Showdown usage are implemented.

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "showdown": {
+    "firstSupportedMonth": "2026-08",
+    "formats": {
+      "gen9championsvgc2026regmb": { "regulation": "M-B", "format": "BO1" },
+      "gen9championsvgc2026regmbbo3": { "regulation": "M-B", "format": "BO3" },
+      "gen9championsvgc2026regmc": { "regulation": "M-C", "format": "BO1" },
+      "gen9championsvgc2026regmcbo3": { "regulation": "M-C", "format": "BO3" }
+    },
+    "evidence": "Matched monthly usage and chaos contracts audited in docs/ladder-coverage.md; no outcome feed"
+  },
+  "champions": [
+    {
+      "reviewed": true,
+      "season": "M-6",
+      "regulation": "M-C",
+      "startsAt": "2026-09-09T02:00:00.000Z",
+      "endsAt": "2026-10-07T01:59:00.000Z",
+      "announcement": "https://champions-news.pokemon-home.com/en/page/822.html",
+      "durationEvidence": "September 9, 2026, at 02:00 UTC to Wednesday, October 7, 2026, at 01:59 UTC"
+    }
+  ]
+}

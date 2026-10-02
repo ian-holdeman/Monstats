@@ -50,7 +50,7 @@ export type Provenance = {
   population: 'registrations' | 'published-top-teams';
   sources: SourceRef[];
   division?: 'masters' | 'senior' | 'junior' | 'unknown';
-  eventType?: 'regional' | 'special' | 'international';
+  eventType?: 'regional' | 'special' | 'international' | 'worlds';
   season?: string;
   roster?: 'complete' | 'supplemental' | 'selective';
   regulationEvidence?: string;
@@ -72,6 +72,7 @@ export type NormalizedEvent = {
   name: string;
   regulation: string;
   date: string;
+  endsAt?: string;
   completed: boolean;
   archived?: boolean;
   platform: string;
@@ -94,10 +95,18 @@ export type Options = {
   regulation: string;
   asOf: string;
   days: number;
+  interval?: CoverageInterval;
   sheet: Visibility | 'all';
   minPlayers: number;
   source?: string;
   official?: boolean;
+};
+export type CoverageInterval = {
+  version: 'regulation-v1';
+  regulation: string;
+  start: string;
+  end: string;
+  cutoff: string;
 };
 export type Distribution = {
   known: number;

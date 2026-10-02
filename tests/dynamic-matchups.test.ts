@@ -26,6 +26,67 @@ const request: MatchupRequest = {
   minPlayers: 0,
   official: false,
 };
+
+test('conditional sign groups and notice filtering precede totals and every page under every sort', async () => {
+  const store = new Store(':memory:');
+  try {
+    const original = publish(store, [sixes()], asOf, 'sign pagination');
+    const d = { ...original, id: 'sign-pages', floor };
+    store.commit(d);
+    for (const b of [['sneasler'], ['incineroar']])
+      for (const sort of ['difference', 'winRate', 'evidence'] as const)
+        for (const hideNotices of [false, true]) {
+          const q = {
+            ...request,
+            mode: 'discover' as const,
+            b,
+            candidateSize: 2,
+            sort,
+            hideNotices,
+            limit: 1,
+          };
+          const groups = await Promise.all(
+            (['best', 'worst'] as const).map(async (direction) => {
+              const full = referenceMatchups(d, { ...q, direction, limit: 50 });
+              for (let offset = 0; offset <= full.total; offset++) {
+                const page = await queryMatchups(store.db, d.id, {
+                  ...q,
+                  direction,
+                  offset,
+                });
+                assert.equal(page.total, full.total);
+                assert.deepEqual(
+                  page.rows.map((r) => r.key),
+                  full.rows.slice(offset, offset + 1).map((r) => r.key),
+                );
+                for (const row of page.rows)
+                  assert.ok(
+                    direction === 'best'
+                      ? row.difference! >= 0
+                      : row.difference! < 0,
+                  );
+              }
+              return full.rows.map((r) => r.key);
+            }),
+          );
+          assert.equal(
+            groups[0].some((key) => groups[1].includes(key)),
+            false,
+          );
+          if (!hideNotices) assert.ok(groups.flat().length > 0);
+        }
+    // Explicit comparison remains available even with the opposing discovery direction.
+    const comparison = await queryMatchups(store.db, d.id, {
+      ...request,
+      a: ['incineroar', 'rillaboom'],
+      b: ['garchomp'],
+      direction: 'best',
+    });
+    assert.equal(comparison.rows[0].difference, -50);
+  } finally {
+    store.close();
+  }
+});
 test('notice filter runs before pagination and preserves raw comparisons and floor', async () => {
   const store = new Store(':memory:');
   try {

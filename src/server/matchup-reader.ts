@@ -9,6 +9,7 @@ import {
 } from '../domain/dynamic-matchups';
 import { scanMatchupGroups } from './matchup-query-worker';
 import { EVIDENCE_VERSION } from '../domain/evidence';
+import { MATCHUP_RANKING } from '../domain/rankings';
 
 const cache = new BoundedCache<MatchupResponse>(32);
 const pending = new Map<string, Promise<MatchupResponse>>();
@@ -42,6 +43,7 @@ export async function readMatchups(id: string, input: MatchupRequest) {
       meta.calculation,
       meta.index,
       EVIDENCE_VERSION,
+      MATCHUP_RANKING,
       meta.options,
       meta.floor,
       request,

@@ -1,4 +1,5 @@
 'use client';
+import { optionBounds } from '../domain/regulations';
 /* eslint-disable @next/next/no-img-element -- artwork is a small, already local PNG served without an upstream optimizer */
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -28,8 +29,11 @@ import type { AppData, PublicDataset } from '@/server/reader';
 import { cohortKey } from '@/domain/regulations';
 import { LadderPanel } from './ladder';
 import { rowColor } from './pokemon-color';
+import { spriteUrl } from '@/domain/artwork';
+import { formatDifference as pp } from '@/domain/presentation';
 import { StatSpread } from './stat-spread';
 import { DynamicMatchups } from './dynamic-matchups';
+import { ResultsScroll } from './results-scroll';
 import { Toolbar } from './tournament-toolbar';
 import {
   QualityInfo,
@@ -44,8 +48,6 @@ import {
   evidenceOrder,
 } from '@/domain/evidence';
 const pct = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
-const pp = (n: number | null) =>
-  n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)} points`;
 const defaultFilters = {
   sheet: 'all' as Visibility | 'all',
   source: 'all',
@@ -64,7 +66,7 @@ function Sprite({ id, large = false }: { id: string; large?: boolean }) {
   return (
     <img
       className={`sprite ${large ? 'large' : ''}`}
-      src={`/sprites/${id}`}
+      src={spriteUrl(id)}
       width={96}
       height={96}
       alt=""
@@ -428,8 +430,18 @@ export function Explorer({
                 </p>
               )}
               {!view?.pokemon.length ? (
-                <Empty title="No data for these filters">
-                  <p>No published registrations match these filters.</p>
+                <Empty
+                  title={
+                    dataset.sources.length
+                      ? 'No data for these filters'
+                      : 'No eligible results yet'
+                  }
+                >
+                  <p>
+                    {dataset.sources.length
+                      ? 'No published registrations match these filters.'
+                      : `No verified eligible results have been published for ${dataset.regulation}.`}
+                  </p>
                   <p>Choose other filters, then select Apply Filter.</p>
                 </Empty>
               ) : selected && pokemon ? (
@@ -540,30 +552,32 @@ export function Explorer({
                         if (row) choose(row);
                       }}
                     />
-                    <Matchups
-                      selected={pokemon.id}
-                      name={pokemon.name}
-                      view={view}
-                      dataset={dataset}
-                      hideNotices={hideNotices}
-                      direction="best"
-                      choose={(id) => {
-                        const row = view.pokemon.find((r) => r.id === id);
-                        if (row) choose(row);
-                      }}
-                    />
-                    <Matchups
-                      selected={pokemon.id}
-                      name={pokemon.name}
-                      view={view}
-                      dataset={dataset}
-                      hideNotices={hideNotices}
-                      direction="worst"
-                      choose={(id) => {
-                        const row = view.pokemon.find((r) => r.id === id);
-                        if (row) choose(row);
-                      }}
-                    />
+                    <div className="results-pair">
+                      <Matchups
+                        selected={pokemon.id}
+                        name={pokemon.name}
+                        view={view}
+                        dataset={dataset}
+                        hideNotices={hideNotices}
+                        direction="best"
+                        choose={(id) => {
+                          const row = view.pokemon.find((r) => r.id === id);
+                          if (row) choose(row);
+                        }}
+                      />
+                      <Matchups
+                        selected={pokemon.id}
+                        name={pokemon.name}
+                        view={view}
+                        dataset={dataset}
+                        hideNotices={hideNotices}
+                        direction="worst"
+                        choose={(id) => {
+                          const row = view.pokemon.find((r) => r.id === id);
+                          if (row) choose(row);
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               ) : !rows.length ? (
@@ -734,7 +748,6 @@ function Matchups({
   hideNotices: boolean;
   choose: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [sort, setSort] = useState<'difference' | 'winRate' | 'evidence'>(
     'difference',
   );
@@ -755,7 +768,18 @@ function Matchups({
           compareBaseline: true,
         }).length,
     ),
-    rows = expanded ? all : all.slice(0, 3);
+    rows = all;
+  const eligible = (view.matchups[selected] ?? []).some(
+    (r) =>
+      r.id !== selected &&
+      r.winRate !== null &&
+      Number.isFinite(r.winRate) &&
+      r.difference !== null &&
+      Number.isFinite(r.difference) &&
+      r.matches >= dataset.floor.matches &&
+      r.events >= dataset.floor.events &&
+      r.players >= dataset.floor.players,
+  );
   return (
     <section
       className="matchup-section"
@@ -766,25 +790,19 @@ function Matchups({
           {direction === 'best' ? 'Best' : 'Worst'} performers into{' '}
           <span>{name} teams</span>
         </h3>
-        {all.length > 3 && (
-          <button
-            className="text-button"
-            aria-expanded={expanded}
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? 'Show top 3' : `View all ${all.length}`}
-            <ChevronRight size={13} />
-          </button>
-        )}
       </div>
       {!rows.length ? (
         <p className="matchup-empty">
-          {hideNotices
-            ? 'No matchups meet the evidence floor and data notice filter in this cohort.'
-            : 'No matchups meet the evidence floor in this cohort.'}
+          {!eligible
+            ? 'Insufficient evidence for comparable matchups in this cohort.'
+            : `No qualifying ${direction === 'best' ? 'positive or neutral' : 'negative'} matchups${hideNotices ? ' with the data notice filter' : ''}.`}
         </p>
       ) : (
-        <div className="table-scroll">
+        <ResultsScroll
+          label={`${direction === 'best' ? 'Best' : 'Worst'} matchup rows`}
+          resetKey={JSON.stringify([selected, view.options, hideNotices, sort])}
+          className="table-scroll matchup-scroll"
+        >
           <table className="matchup-table">
             <caption className="sr-only">
               {direction} observed team matchups into {name} teams
@@ -856,7 +874,7 @@ function Matchups({
               ))}
             </tbody>
           </table>
-        </div>
+        </ResultsScroll>
       )}
     </section>
   );
@@ -874,7 +892,7 @@ function Matchup({
   const evidenceId = useId();
   return (
     <>
-      <tr>
+      <tr style={rowColor(row.id)}>
         <td>
           <button className="pokemon-button" onClick={() => choose(row.id)}>
             <Sprite id={row.id} />
@@ -1108,9 +1126,7 @@ function Evidence({
                 (e) =>
                   e.players >= view.options.minPlayers &&
                   Date.parse(e.date) <= Date.parse(view.options.asOf) &&
-                  Date.parse(e.date) >=
-                    Date.parse(view.options.asOf) -
-                      view.options.days * 86400000 &&
+                  Date.parse(e.date) >= optionBounds(view.options).start &&
                   (!view.options.official || e.official) &&
                   sourceMatches(view.options.source, e.providers) &&
                   (view.options.sheet === 'all' ||

@@ -805,6 +805,51 @@ td {
 }
 .matchup-section {
   margin-bottom: 32px;
+  min-width: 0;
+}
+.results-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.results-scroll {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff24 transparent;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  position: relative;
+}
+.results-scroll:hover,
+.results-scroll:focus-visible {
+  scrollbar-color: #ffffff45 transparent;
+}
+.results-scroll:focus-visible {
+  outline: 2px solid var(--muted);
+  outline-offset: 3px;
+}
+.matchup-scroll {
+  height: 330px;
+}
+.matchup-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--canvas);
+}
+.results-pair .matchup-empty {
+  min-height: 330px;
+}
+.results-pair .matchup-table td {
+  padding-right: 8px;
+}
+.results-pair .matchup-table .pokemon-button {
+  gap: 4px;
+}
+@media (max-width: 1100px) {
+  .results-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .matchup-table th {
   padding-top: 9px;

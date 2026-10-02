@@ -5,7 +5,7 @@ import { provenance, recordProviders } from '../domain/sources';
 import { datasetRegulation, cohortKey } from '../domain/regulations';
 import { Store } from './store';
 import type { PublishedDataset, RefreshState } from '../domain/types';
-import { aggregate } from '../domain/analytics';
+import { aggregate, selectEvents } from '../domain/analytics';
 import { sourceSelection } from '../domain/filters';
 import { withEvidence } from './evidence-reader';
 import { LadderStore } from './ladder-store';
@@ -51,6 +51,16 @@ export function publicDataset(
 ): PublicDataset {
   const { events, collection, quarantine, views, ...rest } = d;
   source = sourceSelection(source);
+  const populationOptions = (views['all:0'] ?? Object.values(views)[0]).options;
+  const population = populationOptions.interval
+    ? selectEvents(events, {
+        ...populationOptions,
+        source: 'all',
+        sheet: 'all',
+        minPlayers: 0,
+        official: false,
+      })
+    : events;
   void collection;
   void quarantine;
   return {
@@ -87,7 +97,7 @@ export function publicDataset(
               ? 'RK9 (pokedata mirror)'
               : id,
     })),
-    sources: events.map((e) => ({
+    sources: population.map((e) => ({
       id: e.id,
       name: e.name,
       date: e.date,

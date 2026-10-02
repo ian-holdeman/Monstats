@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { validateArtwork } from '@/server/artwork';
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -14,10 +15,11 @@ export async function GET(
         `${id}.png`,
       ),
     );
+    await validateArtwork(bytes);
     return new Response(bytes, {
       headers: {
         'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'public, max-age=0, must-revalidate',
       },
     });
   } catch {

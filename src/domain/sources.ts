@@ -216,7 +216,11 @@ export function reconcileSources(input: NormalizedEvent[]) {
   }
   const events: NormalizedEvent[] = [];
   for (const [key, copies] of groups) {
-    const identical = copies.every((e) => facts(e) === facts(copies[0]));
+    // Single suppliers need no enormous fact serialization merely to compare
+    // an event with itself. Only actual mirrors require a normalized comparison.
+    const baseline = copies.length > 1 ? facts(copies[0]) : null;
+    const identical =
+      copies.length === 1 || copies.every((e) => facts(e) === baseline);
     const merged = identical ? copies[0] : supplementalMerge(copies);
     if (ambiguous.has(key) || !merged) {
       quarantine.push({

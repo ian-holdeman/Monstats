@@ -149,7 +149,7 @@ test('bounded discovery checkpoints resume without re-fetching completed API pag
     store.state<{ apiPage: number }>('limitless:M-C:progress')?.apiPage,
     2,
   );
-  const events = await collect(store, '2026-09-30T18:01:00Z', {}, provider);
+  const events = await collect(store, '2026-10-02T18:01:00Z', {}, provider);
   assert.equal(events.length, 0);
   assert.equal(
     calls.filter((s) => s.includes('/api/tournaments?') && s.includes('page=1'))

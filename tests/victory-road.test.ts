@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   normalizeVictoryRoad,
   victoryMetadata,
+  collectVictoryRoad,
 } from '../src/server/victory-road';
+import { Store } from '../src/server/store';
+import type { CollectionReport } from '../src/domain/types';
 import { reconcileRecords } from '../src/domain/reconciliation';
 const article =
   'Videogame Pokémon Champions Season 2027 Season – VGC Regulation Set M-C Open team lists <tr><td>Date</td><td>19–20 September 2026</td></tr><tr><td>Attendance</td><td>20 players</td></tr>';
@@ -40,6 +43,7 @@ test('Victory Road uses evidenced UTC start, full roster, original Battlefy IDs 
   const d = payload();
   const e = normalizeVictoryRoad('fixture', article, page(d), []);
   assert.equal(e.date, '2026-09-19T07:00:00.000Z');
+  assert.equal(e.endsAt, '2026-09-20T23:59:59.999Z');
   assert.equal(
     e.provenance?.canonicalEvent,
     'battlefy:aaaaaaaaaaaaaaaaaaaaaaaa',
@@ -48,6 +52,66 @@ test('Victory Road uses evidenced UTC start, full roster, original Battlefy IDs 
   assert.equal(e.matches[0].winner, 'p0');
   assert.equal(reconcileRecords(e).representedMatchRecords, 2);
   assert.equal(e.accounting?.duplicateMatchRecords, 1);
+});
+test('Victory Road resumes partial event bodies after a budget interruption beyond 24 hours', async () => {
+  const store = new Store(':memory:');
+  const calls: string[] = [];
+  const fetcher = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    return new Response(
+      url === 'https://circuit.victoryroad.pro/'
+        ? 'VR Circuit 2027 Pokémon Champions <a href="/tournament/vr-fixture">event</a>'
+        : url.startsWith('https://victoryroad.pro/')
+          ? article
+          : page(payload()),
+    );
+  }) as typeof fetch;
+  const report = (): CollectionReport => ({
+    asOf: '2026-09-30T18:00:00Z',
+    discovery: 'complete',
+    apiPages: 0,
+    completedPages: 0,
+    listed: 0,
+    completed: 0,
+    refreshed: 0,
+    cached: 0,
+    excluded: [],
+    carriedForward: [],
+    snapshots: [],
+  });
+  const first = report();
+  assert.equal(
+    (
+      await collectVictoryRoad(
+        store,
+        first.asOf,
+        first,
+        { maxReads: 2 },
+        fetcher,
+      )
+    ).length,
+    0,
+  );
+  assert.equal(first.discovery, 'partial');
+  const second = report();
+  assert.equal(
+    (
+      await collectVictoryRoad(
+        store,
+        '2026-10-02T18:00:00Z',
+        second,
+        { maxReads: 2 },
+        fetcher,
+      )
+    ).length,
+    1,
+  );
+  assert.equal(
+    calls.filter((v) => v === 'https://victoryroad.pro/vr-fixture/').length,
+    1,
+  );
+  store.close();
 });
 test('inconsistent reciprocal results and unrevealed teams retain evidence without creating losses', () => {
   const d = payload();

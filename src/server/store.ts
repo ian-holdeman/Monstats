@@ -1,6 +1,10 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { aggregate, CALCULATION_VERSION } from '../domain/analytics';
+import {
+  aggregate,
+  selectEvents,
+  CALCULATION_VERSION,
+} from '../domain/analytics';
 import { NORMALIZATION_VERSION } from '../domain/normalize';
 import configuredFloor from '../../config/evidence-floor.json' with { type: 'json' };
 import type {
@@ -20,6 +24,7 @@ import {
   requireRegulation,
   datasetRegulation,
   cohortKey,
+  coverageInterval,
   type RegulationConfig,
 } from '../domain/regulations';
 export class Store {
@@ -31,6 +36,13 @@ export class Store {
   ) {
     this.db = new DatabaseSync(path, { readOnly });
     this.db.exec('PRAGMA busy_timeout = 5000');
+    const schema = Number(
+      this.db.prepare('PRAGMA user_version').get()?.user_version,
+    );
+    if (schema > 1) {
+      this.db.close();
+      throw new Error('Unsupported database schema; restore compatible backup');
+    }
     if (!readOnly)
       this.db.exec(`
       PRAGMA journal_mode = WAL;
@@ -42,6 +54,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS collector_state (name TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS event_cache (id TEXT PRIMARY KEY, retrieved_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS leases (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires INTEGER NOT NULL);
+      PRAGMA user_version = 1;
     `);
   }
   snapshot(url: string, body: string, retrievedAt: string): Snapshot {
@@ -91,7 +104,16 @@ export class Store {
       .get(`staged:${regulation}`);
     return row ? this.version(String(row.version_id)) : null;
   }
-  activate(regulation: string, expectedId: string) {
+  forRegulation(regulation: string, stage = false) {
+    if (stage && this.staged(regulation)) return this.staged(regulation);
+    if (this.current()?.regulation === regulation) return this.current();
+    return (
+      this.staged(regulation) ??
+      this.archives().find((d) => datasetRegulation(d) === regulation) ??
+      null
+    );
+  }
+  activate(regulation: string, expectedId: string, allowEmpty = false) {
     requireRegulation(regulation, this.config);
     if (this.state<boolean>(`retired:${regulation}`))
       throw new Error('Archived regulation cannot be reactivated');
@@ -100,7 +122,7 @@ export class Store {
       !incoming ||
       incoming.id !== expectedId ||
       datasetRegulation(incoming) !== regulation ||
-      !incoming.views['all:0']?.coverage.registrations
+      (!allowEmpty && !incoming.views['all:0']?.coverage.registrations)
     )
       throw new Error('No valid nonempty staged publication');
     const outgoing = this.current();
@@ -211,10 +233,38 @@ export class Store {
       .prepare("DELETE FROM leases WHERE name='ingestion' AND owner=?")
       .run(owner);
   }
-  commit(dataset: PublishedDataset, stage = false) {
+  renewLease(owner: string, now = Date.now(), ttl = 120000) {
+    return !!this.db
+      .prepare(
+        "UPDATE leases SET expires=? WHERE name='ingestion' AND owner=? AND expires>? RETURNING owner",
+      )
+      .get(now + ttl, owner, now);
+  }
+  assertLease(owner?: string) {
+    if (owner && !this.renewLease(owner))
+      throw new Error('Ingestion lease lost');
+  }
+  finalAuthorized(regulation: string, job?: string) {
+    const state = this.state<{ id: string; state: string; deadline: number }>(
+      `final:${regulation}`,
+    );
+    return (
+      !!job &&
+      state?.id === job &&
+      state.state === 'running' &&
+      Date.now() < state.deadline
+    );
+  }
+  commit(
+    dataset: PublishedDataset,
+    stage = false,
+    owner?: string,
+    finalJob?: string,
+  ) {
     const regulation = datasetRegulation(dataset);
     requireRegulation(regulation, this.config);
-    if (this.state<boolean>(`retired:${regulation}`))
+    const final = this.finalAuthorized(regulation, finalJob);
+    if (this.state<boolean>(`retired:${regulation}`) && !final)
       throw new Error('Archived regulation cannot be republished');
     if (
       Object.values(dataset.views).some(
@@ -222,7 +272,7 @@ export class Store {
       )
     )
       throw new Error('Mixed publication regulations');
-    if (!stage && regulation !== this.activeRegulation())
+    if (!stage && !final && regulation !== this.activeRegulation())
       throw new Error(
         'Incoming regulation requires staging and deliberate activation',
       );
@@ -230,13 +280,30 @@ export class Store {
     matchupSchema(this.db);
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      this.assertLease(owner);
       this.db
         .prepare('INSERT OR IGNORE INTO versions VALUES (?,?,?,?)')
         .run(dataset.id, regulation, dataset.publishedAt, payload);
       buildMatchupIndex(this.db, dataset);
+      this.assertLease(owner);
+      if (finalJob && !this.finalAuthorized(regulation, finalJob))
+        throw new Error('Final execution window expired');
       this.db
         .prepare('INSERT OR REPLACE INTO pointers VALUES (?,?)')
-        .run(stage ? `staged:${regulation}` : 'active', dataset.id);
+        .run(
+          final
+            ? `archive:${regulation}`
+            : stage
+              ? `staged:${regulation}`
+              : 'active',
+          dataset.id,
+        );
+      if (final)
+        this.saveState(`final:${regulation}`, {
+          ...this.state<object>(`final:${regulation}`),
+          state: 'complete',
+          publication: dataset.id,
+        });
       if (!stage)
         this.setStatus({
           state: 'success',
@@ -259,11 +326,20 @@ export function publish(
   asOf: string,
   scope: string,
   collection?: CollectionReport,
-  options: { regulation?: string; stage?: boolean } = {},
+  options: {
+    regulation?: string;
+    stage?: boolean;
+    allowEmpty?: boolean;
+    owner?: string;
+    finalJob?: string;
+  } = {},
 ): PublishedDataset {
   const regulation = options.regulation ?? store.activeRegulation();
   requireRegulation(regulation, store.config);
-  if (store.state<boolean>(`retired:${regulation}`))
+  if (
+    store.state<boolean>(`retired:${regulation}`) &&
+    !store.finalAuthorized(regulation, options.finalJob)
+  )
     throw new Error(`Regulation ${regulation} is archived`);
   if (events.some((e) => e.regulation !== regulation))
     throw new Error('Mixed or unsupported publication regulation');
@@ -277,6 +353,7 @@ export function publish(
   events = reconciled.events;
   for (const event of events) reconcileRecords(event);
   const views: PublishedDataset['views'] = {};
+  const populations = new Map<string, ReturnType<typeof aggregate>>();
   const providers = [...new Set(events.flatMap(recordProviders))];
   for (const source of ['all', ...providers])
     for (const official of [false, true])
@@ -284,20 +361,34 @@ export function publish(
         Visibility | 'all'
       )[])
         for (const minPlayers of [0, 50, 100]) {
-          const view = aggregate(events, {
+          const cohortOptions = {
             regulation,
             asOf,
             days: 30,
+            ...(store.config.cohorts[regulation].reviewed
+              ? { interval: coverageInterval(regulation, asOf, store.config) }
+              : {}),
             sheet,
             minPlayers,
             source,
             official,
-          });
+          };
+          const key = JSON.stringify(
+            selectEvents(events, cohortOptions)
+              .map((e) => e.id)
+              .sort(),
+          );
+          const existing = populations.get(key);
+          const view = existing
+            ? { ...existing, options: cohortOptions }
+            : aggregate(events, cohortOptions);
+          if (!existing) populations.set(key, view);
           views[cohortKey(source, sheet, minPlayers, official)] = view;
           if (source === 'all' && !official)
             views[`${sheet}:${minPlayers}`] = view;
         }
   if (
+    !options.allowEmpty &&
     (!collection || options.stage) &&
     !Object.values(views).some((v) => v.coverage.registrations > 0)
   )
@@ -327,11 +418,27 @@ export function publish(
     collection,
     quarantine: reconciled.quarantine,
   };
-  const id = createHash('sha256')
-    .update(JSON.stringify(payload))
-    .digest('hex')
-    .slice(0, 16);
+  // Hash bounded sections instead of an enormous expanded-cohort string.
+  const hash = createHash('sha256').update('publication-sections-v1');
+  hash.update(
+    JSON.stringify({ ...payload, events: undefined, views: undefined }),
+  );
+  for (const event of events) hash.update(JSON.stringify(event));
+  const cohortHashes = new Map<object, string>();
+  for (const [key, view] of Object.entries(views)) {
+    let metrics = cohortHashes.get(view.matchups);
+    if (!metrics) {
+      const { options, ...facts } = view;
+      void options;
+      metrics = createHash('sha256')
+        .update(JSON.stringify(facts))
+        .digest('hex');
+      cohortHashes.set(view.matchups, metrics);
+    }
+    hash.update(key).update(JSON.stringify(view.options)).update(metrics);
+  }
+  const id = hash.digest('hex').slice(0, 16);
   const dataset = { ...payload, id, publishedAt: new Date().toISOString() };
-  store.commit(dataset, options.stage);
+  store.commit(dataset, options.stage, options.owner, options.finalJob);
   return dataset;
 }

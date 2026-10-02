@@ -1,5 +1,6 @@
 import type { EvidenceFloor, Options } from './types';
 import { sourceSelection } from './filters';
+import { matchupGroup } from './rankings';
 import {
   performanceEvidence,
   evidenceOrder,
@@ -51,6 +52,7 @@ export type MatchupResponse = {
   request: MatchupRequest;
   rows: CombinationRow[];
   total: number;
+  eligibleTotal?: number;
   catalog: { id: string; name: string }[];
 };
 export function selection(ids: string[], known: Set<string>) {
@@ -178,15 +180,25 @@ export function combinationRow(
     sufficient: sufficient(s, floor),
   };
 }
-export function rankCombinations(rows: CombinationRow[], q: MatchupRequest) {
+export function rankCombinations(
+  rows: CombinationRow[],
+  q: MatchupRequest,
+  partition = true,
+) {
+  rows = rows.filter(
+    (r) =>
+      r.sufficient &&
+      r.sample.winRate !== null &&
+      Number.isFinite(r.sample.winRate) &&
+      (!q.b.length || r.key !== q.b.join('+')) &&
+      (!q.b.length ||
+        (r.difference !== null &&
+          Number.isFinite(r.difference) &&
+          (!partition || matchupGroup(r.difference, q.direction)))),
+  );
   if (q.sort === 'evidence')
     return evidenceOrder(
-      rows.filter(
-        (r) =>
-          r.sufficient &&
-          r.sample.winRate !== null &&
-          (!q.b.length || r.key !== q.b.join('+')),
-      ),
+      rows,
       (r) => r.sample.evidence,
       (r) => r.key,
       (r) => r.sample.matches,
@@ -194,17 +206,10 @@ export function rankCombinations(rows: CombinationRow[], q: MatchupRequest) {
     );
   const value = (r: CombinationRow) =>
     q.sort === 'difference' ? r.difference! : r.sample.winRate!;
-  return rows
-    .filter(
-      (r) =>
-        r.sufficient &&
-        r.sample.winRate !== null &&
-        (!q.b.length || r.key !== q.b.join('+')),
-    )
-    .sort(
-      (a, b) =>
-        (q.direction === 'best' ? value(b) - value(a) : value(a) - value(b)) ||
-        b.sample.matches - a.sample.matches ||
-        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
-    );
+  return rows.sort(
+    (a, b) =>
+      (q.direction === 'best' ? value(b) - value(a) : value(a) - value(b)) ||
+      b.sample.matches - a.sample.matches ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+  );
 }

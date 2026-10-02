@@ -27,7 +27,7 @@ test('worker catches up after downtime and persists daily, hourly and failure sc
   assert.throws(() => nextRefresh(store, 0));
   store.close();
 });
-test('collection failure preserves valid cached results and independently expires the rolling window', async () => {
+test('collection failure preserves full regulation results beyond thirty days', async () => {
   const store = new Store(':memory:');
   const asOf = '2026-09-30T18:00:00Z';
   const d = publish(store, [fixture()], asOf, 'test');
@@ -40,8 +40,8 @@ test('collection failure preserves valid cached results and independently expire
     () => refresh(store, '2026-10-31T18:00:00Z', {}, provider),
     /403/,
   );
-  assert.equal(store.current()?.views['all:0'].coverage.events, 0);
-  assert.equal(store.current()?.collection?.discovery, 'partial');
+  assert.equal(store.current()?.views['all:0'].coverage.events, 1);
+  assert.equal(store.current()?.id, d.id);
   assert.equal(store.status()?.state, 'failure');
   store.close();
 });

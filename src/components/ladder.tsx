@@ -1,5 +1,4 @@
 'use client';
-import { sampleReasons } from '@/domain/evidence';
 import { QualityInfo } from './evidence-context';
 /* eslint-disable @next/next/no-img-element -- existing local cached artwork */
 import { useEffect, useRef, useState } from 'react';
@@ -24,6 +23,7 @@ import type {
 import { ladderKey } from '@/domain/ladder';
 import type { AppData } from '@/server/reader';
 import { rowColor } from './pokemon-color';
+import { spriteUrl } from '@/domain/artwork';
 import { StatSpread } from './stat-spread';
 import { monthLabel } from '@/domain/presentation';
 import {
@@ -37,13 +37,7 @@ const count = (n: number | null) =>
   n === null ? '—' : n.toLocaleString('en-US');
 function Sprite({ id }: { id: string }) {
   return (
-    <img
-      className="sprite"
-      src={`/sprites/${id}`}
-      alt=""
-      width={96}
-      height={96}
-    />
+    <img className="sprite" src={spriteUrl(id)} alt="" width={96} height={96} />
   );
 }
 function defaultCohort(
@@ -522,6 +516,12 @@ export function LadderPanel({
           The last source refresh failed. Saved data remains available.
         </p>
       )}
+      {visible?.periodEnd &&
+        Date.parse(data.now) > Date.parse(visible.periodEnd) && (
+          <p className="ladder-notice">
+            Archived reporting period · {visible.regulation}
+          </p>
+        )}
       {stale && (
         <p className="ladder-notice" role="status">
           This Champions capture is over two days old.
@@ -722,12 +722,6 @@ export function LadderPanel({
                           <ArrowDown size={13} />
                         ))}
                     </button>
-                    {(key === 'rank' || key === 'usage') && (
-                      <QualityInfo
-                        label="Ladder population"
-                        reasons={sampleReasons(null, 'usage')}
-                      />
-                    )}
                   </th>
                 ))}
                 <th className="arrow-column">

@@ -10,3 +10,5 @@ playwright-report/
 AGENTS.md
 docs/internal/
 artifacts/
+
+dist/

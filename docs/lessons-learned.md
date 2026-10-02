@@ -82,6 +82,10 @@ At this closeout, 58 offline tests, all 10 browser tests, type checking, lint, t
 
 ## Interface rules for future slices
 
+- Partition automatic baseline comparisons using finite, unrounded values before counting or paging. Keep overall discovery and explicit comparisons separate from that membership rule; sorting only reorders group members.
+- Version response ranking semantics independently from stored metrics. Presentation-only ranking changes should invalidate result caches without rebuilding statistical indexes.
+- Decode artwork and review form identity at actual display sizes. Preserve valid assets, pin reviewed mappings and retain attribution; HTTP success and a neutral fallback do not prove coverage.
+- Keep paired results in independent accessible scroll regions with bounded pagination. Measure both panels in one browser evaluation when smooth navigation could otherwise move the page between geometry reads.
 - Keep the glossy, vibrant Pokémon rows and minimal chrome. Use canonical primary typing for row colors consistently across Tournament, Ladder and Archive; colors do not imply performance.
 - Put data-source buttons at the top of Filters and show only controls supported by that source. Apply commits source and filter edits together. Headers and summaries must describe the displayed data, including after failed reads.
 - Use MM/YY for reporting periods, inclusive rating labels such as 1500+, and All ratings for the zero-cutoff report. Keep precise dates and statistical definitions in provenance.
@@ -105,3 +109,15 @@ The owner accepted the local MVP on October 1, 2026. Final validation covers 72 
 - Distinguish a pending valid query from an incomplete selection. Clearing the last required member must discard the prior result and errors immediately, and late responses must not revive them. Retained rows may only navigate when their request matches the controls.
 
 This local slice validates 81 offline tests and 29 browser checks, plus typecheck, lint, production build, formatting and real-data desktop/narrow review. The clearing follow-up passes all 10 focused Matchups browser checks and 42 independent direct-comparison checks on the saved publication, covering A sizes 1–6 and B sizes 0–6. The saved publication's source facts and timestamp remain unchanged. Dynamic Matchups supports all six sizes, including honest sparse results. Hosting remains deferred and no subsequent implementation slice is authorized.
+
+## Production ingestion and regulation coverage — October 2
+
+Persist unfinished discovery and individual event reads across the daily schedule; a 24-hour cache lifetime must not erase a multi-day backfill checkpoint. Separate terminal evidence exclusions from provider failures, keep malformed events isolated and honor cooldowns across restarts. New and unfinished work should precede settled correction checks.
+
+Use one reviewed UTC regulation contract on every calculation surface. Championship season, ranked season and tournament regulation are different identities. An automatic transition needs an honest empty incoming state and immediate outgoing Archive placement. Final archive collection needs a durable identity, a fixed execution opportunity and atomic completion with the archive pointer; a retry schedule must not silently create an extra day of collection.
+
+Audit the provider's actual literal data without executing its JavaScript. Runtime reassignment can change an extraction contract even when the original JSON remains valid. Derive original identities from independent evidence, and retain completion gaps rather than infer a final from a high round number or date. Public source availability is not a redistribution license.
+
+Measure publication serialization as well as SQL. Expanded cohort combinations can exceed JavaScript string limits before database insertion. Bounded-section hashing and shared equal metrics avoid redundant payloads while each cohort keeps its own options. Tests that mutate synthetic metrics must account for shared arrays. Preserve the independent statistical reference through memory optimizations.
+
+Verify compiled workers in a production install without development runtimes. Rehearse backup, new-directory restore, schema upgrade and rollback using isolated storage. Include companion artwork and publication/index integrity, keep retention dry-run until reviewed, and size the host from measured process memory plus app/OS headroom.

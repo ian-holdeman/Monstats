@@ -117,6 +117,73 @@
   margin: 0 5px 16px;
   overflow-wrap: anywhere;
 }
+.discovery-panel {
+  min-width: 0;
+}
+.discovery-panel h3 {
+  margin: 0 5px 12px;
+  font-size: 16px;
+}
+.discovery-panel h3 span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 10px;
+}
+.combination-scroll {
+  height: 660px;
+  padding: 0 5px 6px;
+}
+.discovery-panel .combination-result {
+  padding: 10px 12px;
+  margin: 0 0 8px;
+}
+.discovery-panel .combination-result-main {
+  display: grid;
+  gap: 5px;
+}
+.discovery-panel .combination-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.discovery-panel .combination-name strong {
+  font-size: 13px;
+}
+.discovery-panel .combination-sprites {
+  flex-shrink: 0;
+  max-width: 144px;
+}
+.discovery-panel .combination-sprites img {
+  width: 32px;
+  height: 32px;
+}
+.discovery-panel .combination-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  text-align: left;
+  gap: 12px;
+}
+.discovery-panel .combination-metrics strong {
+  font-size: 18px;
+}
+.discovery-panel .combination-metrics span {
+  font-size: 10px;
+}
+.discovery-panel .combination-metrics small {
+  display: none;
+}
+.discovery-panel .combination-evidence {
+  margin-top: 6px;
+}
+.discovery-panel .matchup-pagination {
+  gap: 10px;
+  font-size: 12px;
+  margin: 12px 0;
+}
+.combination-scroll .matchup-empty {
+  padding: 16px 8px;
+}
 .combination-result {
   padding: 18px 22px 12px;
   margin: 10px 0;

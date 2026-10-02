@@ -8,6 +8,7 @@ import {
 import { buildSummaries } from './builds';
 import { sourceMatches } from './filters';
 import { eventEvidence } from './evidence';
+import { optionBounds, eventInInterval } from './regulations';
 export { rankMatchups } from './rankings';
 export const CALCULATION_VERSION = 'masters-cohort-series-v5';
 const rate = (wins: number, outcomes: number) =>
@@ -50,10 +51,7 @@ export function eligibleResult(
   return !rejection(match, event) && leftResolved && rightResolved;
 }
 export function selectEvents(events: NormalizedEvent[], options: Options) {
-  const end = Date.parse(options.asOf),
-    start = end - options.days * 86400000;
-  if (!Number.isFinite(end) || options.days <= 0)
-    throw new Error('Invalid window');
+  const { start, end } = optionBounds(options);
   return events.filter(
     (e) =>
       e.completed &&
@@ -65,7 +63,8 @@ export function selectEvents(events: NormalizedEvent[], options: Options) {
       sourceMatches(options.source, recordProviders(e)) &&
       (options.sheet === 'all' || e.sheet.visibility === options.sheet) &&
       Date.parse(e.date) >= start &&
-      Date.parse(e.date) <= end,
+      Date.parse(e.date) <= end &&
+      (!options.interval || eventInInterval(e, options.interval)),
   );
 }
 type Counter = {
@@ -73,8 +72,8 @@ type Counter = {
   eventSources: Map<string, string[]>;
   wins: number;
   outcomes: number;
-  matches: Set<string>;
-  events: Set<string>;
+  matches: { size: number };
+  lastPhysical: string | null;
   players: Set<string>;
 };
 const counter = (): Counter => ({
@@ -82,8 +81,8 @@ const counter = (): Counter => ({
   eventSources: new Map(),
   wins: 0,
   outcomes: 0,
-  matches: new Set(),
-  events: new Set(),
+  matches: { size: 0 },
+  lastPhysical: null,
   players: new Set(),
 });
 function add(
@@ -96,11 +95,14 @@ function add(
 ) {
   c.wins += Number(win);
   c.outcomes++;
-  if (!c.matches.has(key))
+  // Reconciled unique physical matches are visited once, with both perspectives
+  // adjacent. A counter only needs its last physical key to deduplicate mirrors.
+  if (c.lastPhysical !== key) {
     c.eventCounts.set(event, (c.eventCounts.get(event) ?? 0) + 1);
-  c.matches.add(key);
+    c.matches.size++;
+    c.lastPhysical = key;
+  }
   c.eventSources.set(event, providers);
-  c.events.add(event);
   c.players.add(player);
 }
 export function aggregate(
@@ -213,7 +215,7 @@ export function aggregate(
           wins: c.wins,
           outcomes: c.outcomes,
           matches: c.matches.size,
-          events: c.events.size,
+          events: c.eventCounts.size,
           players: c.players.size,
           evidence: eventEvidence(
             c.matches.size,

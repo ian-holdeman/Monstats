@@ -213,7 +213,7 @@ test('cleared selections stay cleared across modes and fresh navigation', async 
     page.getByRole('combobox', { name: 'Opponent mode' }),
   ).toHaveValue('overall');
 });
-test('discovery supports all six sizes, valid mode sorts, and inspect direction', async ({
+test('discovery supports all six sizes, valid mode sorts, and selects discovered opponents', async ({
   page,
 }) => {
   await page.goto('/');
@@ -278,9 +278,123 @@ test('discovery supports all six sizes, valid mode sorts, and inspect direction'
     .first()
     .click();
   await expect(
-    page.getByRole('button', { name: 'Compare', exact: true }),
+    page.getByRole('button', { name: 'Discover combinations', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('combobox', { name: 'Opponent mode' }),
+  ).toHaveValue('selected');
+  await expect(
+    page.getByRole('combobox', { name: 'Combination size' }),
+  ).toHaveValue('1');
+  await expect(
+    page.getByRole('textbox', { name: 'Search Candidate A' }),
+  ).toHaveCount(0);
 });
+test('discovered groups replace opponent B, reset size, preserve filters and manual candidates, and chain by keyboard', async ({
+  page,
+}) => {
+  await page.goto('/matchups');
+  await add(page, 'Candidate A', 'Incineroar');
+  await expect(page.locator('.combination-results h2')).toContainText(
+    'Incineroar teams',
+  );
+  await page
+    .getByRole('button', { name: 'Discover combinations', exact: true })
+    .click();
+  await expect(
+    page.getByRole('combobox', { name: 'Combination size' }),
+  ).toHaveValue('1');
+  await page.getByText('Filters', { exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Team sheets', exact: true })
+    .selectOption('open');
+  await page.getByRole('button', { name: 'Apply Filter', exact: true }).click();
+  await expect(page.locator('.matchup-filter-summary')).toContainText('OTS');
+  await page
+    .getByRole('combobox', { name: 'Combination size' })
+    .selectOption('2');
+  await page
+    .getByRole('button', { name: 'Inspect Garchomp + Pelipper', exact: true })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Discover combinations', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('combobox', { name: 'Opponent mode' }),
+  ).toHaveValue('selected');
+  await expect(
+    page.getByRole('combobox', { name: 'Combination size' }),
+  ).toHaveValue('1');
+  await expect(page.getByRole('combobox', { name: 'Sort by' })).toHaveValue(
+    'difference',
+  );
+  for (const name of ['Garchomp', 'Pelipper'])
+    await expect(
+      page.getByRole('button', {
+        name: `Remove ${name} from Opponent B`,
+        exact: true,
+      }),
+    ).toBeVisible();
+  await expect(page.locator('.combination-results h2')).toHaveText(
+    '1-Pokémon combinations into Garchomp + Pelipper teams',
+  );
+  await expect(page.locator('.matchup-filter-summary')).toContainText('OTS');
+  const best = page.getByRole('region', {
+    name: 'Best combinations',
+    exact: true,
+  });
+  const worst = page.getByRole('region', {
+    name: 'Worst combinations',
+    exact: true,
+  });
+  await expect(best).toBeVisible();
+  await expect(worst).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await worst
+    .getByRole('button', { name: 'Inspect Incineroar', exact: true })
+    .focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.combination-results h2')).toHaveText(
+    '1-Pokémon combinations into Incineroar teams',
+  );
+  await expect(
+    page.getByRole('button', { name: /Remove .* from Opponent B/ }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole('button', {
+      name: 'Remove Incineroar from Opponent B',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(best).toBeVisible();
+  await expect(worst).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await best
+    .getByRole('button', { name: 'Inspect Rillaboom', exact: true })
+    .click();
+  await expect(page.locator('.combination-results h2')).toHaveText(
+    '1-Pokémon combinations into Rillaboom teams',
+  );
+  await expect(
+    page.getByRole('button', { name: /Remove .* from Opponent B/ }),
+  ).toHaveCount(1);
+  await expect(page.locator('.matchup-filter-summary')).toContainText('OTS');
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.locator('.combination-results h2')).toHaveText(
+    'Incineroar teams into Rillaboom teams',
+  );
+  await expect(
+    page.getByRole('button', {
+      name: 'Remove Incineroar from Candidate A',
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
 test('six-member caps, canonical selections, sparse and zero-result states on narrow layouts', async ({
   page,
 }) => {

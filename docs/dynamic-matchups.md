@@ -26,6 +26,8 @@ Local benchmark on that publication (7,081 registrations, 21,196 eligible physic
 
 ## Product behavior
 
+Discover starts with a candidate combination size of one. Clicking a discovered Pokémon or group replaces selected opponent B with the complete row and stays in Discover, showing Best/Worst combinations into that opponent. Each such exploration resets candidate size to one and sorting to change versus own overall, with both result pages reset. Active filters and the manually selected Candidate A are preserved; Compare remains available for explicit interactions.
+
 | Operation        | Inputs                                                           | Primary output and default sort                                                                                       |
 | ---------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Compare          | Selected combination A and selected combination B, each size 1–6 | A's win rate against B, A's overall baseline and signed percentage-point difference                                   |

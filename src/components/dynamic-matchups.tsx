@@ -495,6 +495,12 @@ export function DynamicMatchups({
     setOffset(0);
   }
   function inspect(members: string[]) {
+    if (mode === 'discover') {
+      setB(members);
+      changeOpponent(true);
+      setSize(1);
+      return;
+    }
     setA(members);
     setMode('compare');
     setOffset(0);

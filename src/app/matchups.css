@@ -1,5 +1,5 @@
 .dynamic-matchups .toolbar {
-  justify-content: center;
+  justify-content: flex-end;
   height: 48px;
 }
 .matchup-filter-summary {

@@ -197,23 +197,27 @@ export function reconcileSources(input: NormalizedEvent[]) {
     groups.set(key, group);
   }
   const ambiguous = new Set<string>();
-  const signatures = new Map<string, { key: string; providers: Set<string> }>();
+  const signatures = new Map<
+    string,
+    { keys: Set<string>; providers: Set<string> }
+  >();
   for (const [key, events] of groups) {
     const event = events[0];
     const signature = `${event.regulation}:${event.date.slice(0, 10)}:${event.name.trim().toLowerCase()}`;
-    const providers = new Set(
-      events.flatMap((e) => provenance(e).sources.map((s) => s.provider)),
-    );
-    const previous = signatures.get(signature);
-    if (
-      previous &&
-      previous.key !== key &&
-      [...providers].some((s) => !previous.providers.has(s))
-    ) {
-      ambiguous.add(key);
-      ambiguous.add(previous.key);
-    } else signatures.set(signature, { key, providers });
+    const providers = new Set(events.flatMap(recordProviders));
+    const group = signatures.get(signature) ?? {
+      keys: new Set<string>(),
+      providers: new Set<string>(),
+    };
+    group.keys.add(key);
+    for (const provider of providers) group.providers.add(provider);
+    signatures.set(signature, group);
   }
+  // Decide after seeing the entire signature group. A later supplier subset or
+  // third copy must not escape quarantine because of input order.
+  for (const group of signatures.values())
+    if (group.keys.size > 1 && group.providers.size > 1)
+      for (const key of group.keys) ambiguous.add(key);
   const events: NormalizedEvent[] = [];
   for (const [key, copies] of groups) {
     // Single suppliers need no enormous fact serialization merely to compare

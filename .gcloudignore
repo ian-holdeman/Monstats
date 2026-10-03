@@ -1,0 +1,19 @@
+# Build inputs only. Do not upload local data, credentials, or internal records.
+**
+!src/
+!src/**
+!scripts/
+!scripts/**
+!config/
+!config/**
+!public/
+!public/**
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.ts
+!next-env.d.ts
+!postcss.config.mjs
+!Dockerfile
+!.dockerignore
+!.gcloudignore

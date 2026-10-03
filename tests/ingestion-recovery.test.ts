@@ -55,6 +55,36 @@ test('consistent WAL backup restores publications/index/artwork and rejects corr
   );
   store.close();
 });
+
+test('database verification rejects logical index corruption even when SQLite and declared foreign keys pass', async () => {
+  const corruptions = [
+    'DELETE FROM matchup_results WHERE physical=(SELECT physical FROM matchup_results LIMIT 1)',
+    'DELETE FROM matchup_teams WHERE id=(SELECT id FROM matchup_teams LIMIT 1)',
+    "UPDATE matchup_members SET member='garchomp' WHERE member='rillaboom'",
+    'UPDATE matchup_results SET winner=CASE WHEN winner=left_team THEN right_team ELSE left_team END',
+    "UPDATE matchup_events SET sheet='closed'",
+    "UPDATE matchup_sources SET provider='pokedata'",
+    "UPDATE matchup_indexes SET metadata=json_set(metadata,'$.physicalResults',999)",
+  ];
+  for (const sql of corruptions) {
+    const root = await mkdtemp(join(tmpdir(), 'monstats-index-integrity-'));
+    const path = join(root, 'monstats.sqlite');
+    const store = new Store(path);
+    try {
+      publish(store, [fixture()], '2026-09-30T18:00:00Z', 'index integrity');
+      assert.equal(checkDatabase(path).integrity, 'ok');
+      store.db.exec(sql);
+      assert.equal(
+        store.db.prepare('PRAGMA integrity_check').get()?.integrity_check,
+        'ok',
+      );
+      assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
+      assert.throws(() => checkDatabase(path), /Matchups index/i, sql);
+    } finally {
+      store.close();
+    }
+  }
+});
 test('malformed event cannot starve valid new intake; partial event reads resume beyond 24 hours', async () => {
   const store = new Store(':memory:');
   const ids = ['a', 'b'].map((v) => v.repeat(24));

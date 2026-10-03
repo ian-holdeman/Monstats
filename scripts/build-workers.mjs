@@ -9,6 +9,7 @@ await build({
     'backfill-regulation',
     'sprites',
     'activate',
+    'serving-reader',
   ].map((n) => `scripts/${n}.ts`),
   outdir: 'dist/workers',
   outExtension: { '.js': '.mjs' },

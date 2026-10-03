@@ -9,6 +9,7 @@ export async function GET(
   if (!/^[a-z0-9]+$/.test(id)) return new Response(null, { status: 404 });
   try {
     const bytes = await readFile(
+      /* turbopackIgnore: true */
       resolve(
         process.env.MONSTATS_DATA_DIR ?? '.monstats',
         'sprites',

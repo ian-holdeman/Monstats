@@ -4,6 +4,7 @@ import {
   ladderKey,
   validateLadder,
   validateLadderSummary,
+  CHAMPIONS_BUILD_NORMALIZATION,
   type LadderDraft,
   type LadderDataset,
   type LadderSummary,
@@ -43,6 +44,14 @@ export class LadderStore {
         const summary = validateLadderSummary(JSON.parse(String(r.payload)));
         if (summary.id !== r.version_id)
           throw new Error('Mismatched ladder metadata');
+        if (
+          summary.environment === 'champions' &&
+          summary.buildNormalizationVersion !== CHAMPIONS_BUILD_NORMALIZATION
+        ) {
+          const derived = this.version(summary.id);
+          if (!derived) throw new Error('Saved Champions publication missing');
+          return this.summary(derived);
+        }
         return summary;
       });
     }

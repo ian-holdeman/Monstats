@@ -1,13 +1,7 @@
-# Local artwork
+# Artwork credits
 
-Browsers read only local files. `npm run assets:cache` explicitly audits identities from all saved tournament publications, including frozen archives and registered slots used by Matchups, and all saved Ladder cohorts, then acquires missing or broken files from reviewed mappings. `npm run assets:cache -- --audit` checks coverage without downloading. Both modes decode actual PNG pixels; an HTTP-success placeholder is not coverage.
+Monstats uses cached [Pokémon Showdown sprites](https://play.pokemonshowdown.com/sprites/) and Mega sprites by **Kyledove**, contributed through [PokeAPI](https://github.com/PokeAPI/sprites/pull/236), with thanks to the sprite contributors.
 
-`src/domain/artwork.ts` keeps asset mappings separate from statistical identities. Mega Raichu X/Y and Mega Z variants have separate pinned PokeAPI asset IDs. New Mega pixel artwork is credited to **Kyledove** and the **PokeAPI sprite contributors**. [The contribution](https://github.com/PokeAPI/sprites/pull/236) documents normalization and the artist's [confirmation of the credit requirement](https://github.com/PokeAPI/sprites/pull/236#issuecomment-4722684098). Acquisition uses repository revision `bfb75391935310368065096fa08c51e8970bc43e`. [PokeAPI's license](https://github.com/PokeAPI/sprites/blob/master/LICENCE.txt) distributes the repository under CC0 while recognizing Pokémon Company image copyright; it does not clear unrelated third-party rights. Pokémon characters belong to Nintendo, Game Freak and The Pokémon Company. Monstats is an unofficial personal project.
+Pokémon characters and original artwork belong to Nintendo, Game Freak, The Pokémon Company, and their respective rights holders. Monstats is an unofficial project.
 
-Existing valid artwork is preserved byte for byte. Acquisition verifies response type, PNG content, dimensions, transparent background and full decoding before atomic replacement. Local acquisition records retain URLs, attribution, source terms and hashes. Files and private provenance/visual QA stay ignored under `.monstats/`; reproduce assets using the explicit workflow and retain required credits. A missing reviewed source or failed acquisition remains unresolved, with a neutral uncached fallback.
-
-Do not treat Showdown's code license as a sprite license. [Its sprite repository](https://github.com/smogon/sprites#license) separately requires permission for community work. The downloader limits unmapped Showdown acquisition to original generation 1–5 game sprites. Additional community forms need reviewed mappings and attribution before acquisition.
-
-All consumers use a shared versioned image URL, bypassing old cached responses when artwork mappings change. Local image responses require revalidation, allowing later repairs without another statistical publication or index rebuild.
-
-The October 2, 2026 saved-identity audit covered 348 identities, including 82 Mega identities: 11 missing Mega files were repaired and all audited files decode. Mega Meowstic's two canonical gender identities remain separate; their shared visual appearance is intentional.
+Artwork is stored separately from statistics. Missing or unreadable files use a neutral placeholder and do not change statistical results. Browsing reads cached images without contacting artwork providers.

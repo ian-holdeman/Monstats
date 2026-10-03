@@ -1,6 +1,6 @@
 import { Explorer } from '@/components/explorer';
-import { readAppData } from '@/server/reader';
+import { readPageData } from '@/server/serving-reader';
 export const dynamic = 'force-dynamic';
-export default function MatchupsPage() {
-  return <Explorer data={readAppData()} initialTab="matchups" />;
+export default async function MatchupsPage() {
+  return <Explorer data={await readPageData()} initialTab="matchups" />;
 }

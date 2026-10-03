@@ -1,6 +1,6 @@
-import { readAppData } from '@/server/reader';
+import { readPageData } from '@/server/serving-reader';
 import { Explorer } from '@/components/explorer';
 export const dynamic = 'force-dynamic';
-export default function Page() {
-  return <Explorer data={readAppData()} />;
+export default async function Page() {
+  return <Explorer data={await readPageData()} />;
 }

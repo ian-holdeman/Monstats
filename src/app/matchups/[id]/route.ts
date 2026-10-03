@@ -1,5 +1,6 @@
 import { readMatchups } from '@/server/matchup-reader';
 import type { MatchupRequest } from '@/domain/dynamic-matchups';
+import { readRequestBody, RequestBodyError } from '@/server/request-body';
 export const dynamic = 'force-dynamic';
 export async function POST(
   request: Request,
@@ -8,23 +9,16 @@ export async function POST(
   const { id } = await params;
   if (!/^[a-zA-Z0-9-]{1,80}$/.test(id))
     return Response.json({ error: 'Invalid publication' }, { status: 400 });
+  if (
+    request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !==
+    'application/json'
+  )
+    return Response.json(
+      { error: 'Content-Type must be application/json' },
+      { status: 415 },
+    );
   try {
-    const reader = request.body?.getReader();
-    if (!reader)
-      return Response.json({ error: 'Invalid request' }, { status: 400 });
-    const chunks: Uint8Array[] = [];
-    let bytes = 0;
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > 4096) {
-        await reader.cancel();
-        return Response.json({ error: 'Request too large' }, { status: 413 });
-      }
-      chunks.push(chunk.value);
-    }
-    const body = Buffer.concat(chunks).toString('utf8');
+    const body = await readRequestBody(request);
     let input: MatchupRequest;
     try {
       input = JSON.parse(body);
@@ -36,6 +30,8 @@ export async function POST(
     const result = await readMatchups(id, input);
     return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (error instanceof RequestBodyError)
+      return Response.json({ error: error.message }, { status: error.status });
     const message = error instanceof Error ? error.message : '';
     const invalid = /Invalid|Unknown/.test(message);
     const capacity = /capacity/.test(message);

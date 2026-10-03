@@ -9,10 +9,185 @@ import {
 } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { Store } from './store';
-import { indexMetadata } from './matchup-index';
+import { indexKey, indexMetadata } from './matchup-index';
 import { LadderStore } from './ladder-store';
 import { ladderKey } from '../domain/ladder';
+import { eligibleResult, selectEvents } from '../domain/analytics';
+import {
+  provenance,
+  reconcileSources,
+  recordProviders,
+} from '../domain/sources';
+import { MATCHUP_CALCULATION, MATCHUP_INDEX } from '../domain/dynamic-matchups';
+import type { PublishedDataset } from '../domain/types';
+
+// SQLite page integrity and a ready marker do not establish statistical integrity.
+// Verify the serving index against its immutable publication before accepting a
+// backup/restore. This is an explicit operational check, never a browsing side effect.
+function checkMatchupIndex(db: DatabaseSync, d: PublishedDataset) {
+  const assertIndex = (ok: boolean, detail: string) => {
+    if (!ok) throw new Error(`Matchups index inconsistent: ${detail}`);
+  };
+  const meta = indexMetadata(db, d.id);
+  if (!meta) throw new Error('Publication or ready Matchups index missing');
+  const view = d.views['all:0'] ?? Object.values(d.views)[0];
+  const options = view.options;
+  assertIndex(
+    meta.publication === d.id &&
+      meta.calculation === MATCHUP_CALCULATION &&
+      meta.index === MATCHUP_INDEX &&
+      meta.asOf === d.asOf &&
+      meta.regulation === options.regulation &&
+      isDeepStrictEqual(meta.options, options) &&
+      isDeepStrictEqual(meta.floor, d.floor),
+    'metadata',
+  );
+  const version = indexKey(d.id);
+  const events = selectEvents(reconcileSources(d.events).events, {
+    ...options,
+    source: 'all',
+    sheet: 'all',
+    minPlayers: 0,
+    official: false,
+  });
+  const eventRead = db.prepare(
+    'SELECT canonical,regulation,date,players,sheet,official FROM matchup_events WHERE version=? AND event=?',
+  );
+  const sourcesRead = db.prepare(
+    'SELECT provider FROM matchup_sources WHERE version=? AND event=? ORDER BY provider',
+  );
+  const teamsRead = db.prepare(
+    'SELECT id,player,participant,composition FROM matchup_teams WHERE version=? AND event=?',
+  );
+  const savedMembers = new Map<number, string[]>();
+  for (const row of db
+    .prepare(
+      'SELECT team,member FROM matchup_members WHERE version=? ORDER BY member',
+    )
+    .all(version)) {
+    const id = Number(row.team);
+    const members = savedMembers.get(id) ?? [];
+    members.push(String(row.member));
+    savedMembers.set(id, members);
+  }
+  const catalog = new Map<string, string>();
+  const results = new Map<string, (string | number)[]>();
+  let teamCount = 0,
+    memberCount = 0,
+    sourceCount = 0;
+  for (const event of events) {
+    const p = provenance(event);
+    const saved = eventRead.get(version, event.id);
+    assertIndex(
+      !!saved &&
+        isDeepStrictEqual(Object.values(saved), [
+          p.canonicalEvent,
+          event.regulation,
+          new Date(event.date).toISOString(),
+          event.players,
+          event.sheet.visibility,
+          Number(p.official === 'verified'),
+        ]),
+      'event facts',
+    );
+    const providers = [...new Set(recordProviders(event))].sort();
+    assertIndex(
+      isDeepStrictEqual(
+        sourcesRead.all(version, event.id).map((r) => r.provider),
+        providers,
+      ),
+      'event providers',
+    );
+    sourceCount += providers.length;
+    const teams = teamsRead.all(version, event.id);
+    const byPlayer = new Map(teams.map((t) => [String(t.player), t]));
+    const registrations = event.registrations.filter((r) => r.slots?.length);
+    assertIndex(teams.length === registrations.length, 'event team count');
+    const teamIds = new Map<string, number>();
+    for (const registration of registrations) {
+      const team = byPlayer.get(registration.player);
+      const members = [...new Set(registration.slots!.map((s) => s.id))].sort();
+      assertIndex(
+        !!team &&
+          team.participant ===
+            `${p.participantNamespace}:${registration.player}` &&
+          team.composition === JSON.stringify(members),
+        'registered composition',
+      );
+      const id = Number(team!.id);
+      assertIndex(
+        isDeepStrictEqual(savedMembers.get(id), members),
+        'registered members',
+      );
+      teamIds.set(registration.player, id);
+      teamCount++;
+      memberCount += members.length;
+      for (const slot of registration.slots!) catalog.set(slot.id, slot.name);
+    }
+    const seen = new Set<string>();
+    for (const match of event.matches) {
+      if (seen.has(match.id)) continue;
+      seen.add(match.id);
+      const left = teamIds.get(match.player1),
+        right = teamIds.get(match.player2 ?? '');
+      if (
+        !eligibleResult(match, event, left !== undefined, right !== undefined)
+      )
+        continue;
+      const physical = `${p.canonicalEvent}:${match.id}`;
+      assertIndex(!results.has(physical), 'duplicate physical identity');
+      results.set(physical, [
+        event.id,
+        left!,
+        right!,
+        match.winner === match.player1 ? left! : right!,
+      ]);
+    }
+  }
+  const actualResults = db
+    .prepare(
+      'SELECT physical,event,left_team,right_team,winner FROM matchup_results WHERE version=?',
+    )
+    .all(version);
+  assertIndex(actualResults.length === results.size, 'physical result count');
+  for (const row of actualResults)
+    assertIndex(
+      isDeepStrictEqual(results.get(String(row.physical)), [
+        row.event,
+        row.left_team,
+        row.right_team,
+        row.winner,
+      ]),
+      'physical result facts',
+    );
+  for (const [table, expected] of [
+    ['matchup_events', events.length],
+    ['matchup_sources', sourceCount],
+    ['matchup_teams', teamCount],
+    ['matchup_members', memberCount],
+  ] as const)
+    assertIndex(
+      db.prepare(`SELECT count(*) n FROM ${table} WHERE version=?`).get(version)
+        ?.n === expected,
+      `${table} count or orphan records`,
+    );
+  assertIndex(
+    meta.physicalResults === results.size &&
+      meta.teams === teamCount &&
+      view.coverage.matches === results.size &&
+      view.coverage.registrations === teamCount &&
+      view.coverage.events === events.length,
+    'publication coverage',
+  );
+  assertIndex(
+    meta.catalog.length === catalog.size &&
+      new Set(meta.catalog.map((p) => p.id)).size === catalog.size &&
+      meta.catalog.every((p) => catalog.get(p.id) === p.name),
+    'catalog',
+  );
+}
 
 async function hashes(dir: string): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
@@ -38,11 +213,12 @@ export function checkDatabase(path: string) {
     if (store.db.prepare('PRAGMA foreign_key_check').all().length)
       throw new Error('Foreign key integrity failed');
     for (const row of store.db
-      .prepare('SELECT version_id FROM pointers')
+      .prepare('SELECT DISTINCT version_id FROM pointers')
       .all()) {
       const d = store.version(String(row.version_id));
-      if (!d || !indexMetadata(store.db, d.id))
-        throw new Error('Publication or ready Matchups index missing');
+      if (!d || d.id !== row.version_id)
+        throw new Error('Publication identity missing or inconsistent');
+      checkMatchupIndex(store.db, d);
     }
     const ladder = new LadderStore(store);
     for (const summary of ladder.catalog()) {

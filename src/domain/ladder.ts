@@ -9,6 +9,7 @@ import { setLabel } from './set-identities';
 import type { Snapshot } from './types';
 
 export const LADDER_VERSION = 'ladder-v1';
+export const CHAMPIONS_BUILD_NORMALIZATION = 'champions-build-identities-v1';
 export type LadderEnvironment = 'showdown' | 'champions';
 export type LadderValue = {
   name: string;
@@ -45,6 +46,7 @@ export type LadderPokemon = {
 };
 export type LadderDraft = {
   schemaVersion: typeof LADDER_VERSION;
+  buildNormalizationVersion?: typeof CHAMPIONS_BUILD_NORMALIZATION;
   identityVersion: string;
   environment: LadderEnvironment;
   regulation: string;
@@ -91,6 +93,9 @@ const distribution = z.object({
 });
 const schema = z.object({
   schemaVersion: z.literal(LADDER_VERSION),
+  buildNormalizationVersion: z
+    .literal(CHAMPIONS_BUILD_NORMALIZATION)
+    .optional(),
   identityVersion: z.string().min(1),
   environment: z.enum(['showdown', 'champions']),
   regulation: z.string().regex(/^M-[A-Z]$/),
@@ -187,6 +192,84 @@ export function validateLadderSummary(input: unknown): LadderSummary {
   const d = summarySchema.parse(input);
   validateMetadata(d);
   return d;
+}
+// Shared by newly parsed captures and reads of immutable legacy publications.
+// Never guess which conflicting source value is right or renumber surviving ranks.
+function normalizeChampionsBuilds(d: LadderDraft): LadderDraft {
+  if (d.environment !== 'champions') return d;
+  const excluded = [...d.excluded];
+  let conflicts = 0,
+    repeated = 0;
+  const rows = d.rows.map((row) => ({
+    ...row,
+    builds: Object.fromEntries(
+      Object.entries(row.builds).map(([field, distribution]) => {
+        const groups = new Map<string, LadderValue[]>();
+        for (const value of distribution.values) {
+          const key =
+            field === 'teammates'
+              ? (value.id ?? identity(value.name).id)
+              : field === 'spreads'
+                ? value.name.trim()
+                : setLabel(
+                    field as 'items' | 'abilities' | 'moves' | 'natures',
+                    value.name,
+                  );
+          const group = groups.get(key) ?? [];
+          group.push(value);
+          groups.set(key, group);
+        }
+        const values = [...groups.values()].flatMap((group) => {
+          const first = group[0];
+          if (
+            group.some(
+              (value) =>
+                value.percent !== first.percent ||
+                value.rank !== first.rank ||
+                value.weight !== first.weight,
+            )
+          ) {
+            conflicts++;
+            const measures = group
+              .map((value) =>
+                value.rank === null ? `${value.percent}%` : `#${value.rank}`,
+              )
+              .join(', ');
+            const entry = {
+              rawName: first.name,
+              pokemon: row.rawName,
+              reason: `Conflicting duplicate Champions ${field} values (${measures}); omitted without guessing a rank or share. Original source evidence retained.`,
+            };
+            if (
+              !excluded.some(
+                (old) =>
+                  old.rawName === entry.rawName &&
+                  old.pokemon === entry.pokemon &&
+                  old.reason === entry.reason,
+              )
+            )
+              excluded.push(entry);
+            return [];
+          }
+          repeated += group.length - 1;
+          return [first];
+        });
+        return [field, { ...distribution, values }];
+      }),
+    ),
+  }));
+  const note =
+    'Conflicting duplicate build labels are excluded without guessing ranks or percentages; identical repeated values are shown once. Remaining source ranks and original evidence are preserved.';
+  return {
+    ...d,
+    buildNormalizationVersion: CHAMPIONS_BUILD_NORMALIZATION,
+    rows,
+    excluded,
+    notes:
+      (conflicts || repeated) && !d.notes.includes(note)
+        ? [...d.notes, note]
+        : d.notes,
+  };
 }
 function validateMetadata(
   d: Pick<
@@ -309,7 +392,7 @@ export function validateLadder(input: LadderDraft): LadderDraft {
           throw new Error('Invalid teammate identity');
       }
   }
-  return d;
+  return normalizeChampionsBuilds(d);
 }
 function identity(rawName: string) {
   const slot = normalizeSlot({ name: rawName });

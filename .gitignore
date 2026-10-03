@@ -7,8 +7,9 @@ playwright-report/
 *.tsbuildinfo
 .env*
 !.env.example
+# Local AI instructions, decisions, permissions, audits, and handoffs.
 AGENTS.md
-docs/internal/
+/docs/internal/
 artifacts/
 
 dist/

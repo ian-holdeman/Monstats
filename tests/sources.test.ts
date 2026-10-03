@@ -119,6 +119,71 @@ test('verified cross-source mirrors count once; conflicting and unresolved mirro
     'unresolved-cross-source-identity',
   );
 });
+
+test('ambiguous cross-source groups are quarantined independently of input order and provider subsets', () => {
+  const make = (id: string, providers: string[]) => ({
+    ...fixture(),
+    id,
+    provenance: {
+      ...provenance(fixture()),
+      canonicalEvent: id,
+      sources: providers.map((provider) => ({
+        provider,
+        originalId: id,
+        url: `https://example.test/${id}`,
+      })),
+    },
+  });
+  const permutations = <T>(values: T[]): T[][] =>
+    values.length < 2
+      ? [values]
+      : values.flatMap((value, index) =>
+          permutations(values.filter((_, i) => i !== index)).map((rest) => [
+            value,
+            ...rest,
+          ]),
+        );
+  for (const groups of [
+    [make('a', ['limitless', 'pokedata']), make('b', ['limitless'])],
+    [
+      make('a', ['limitless', 'pokedata']),
+      make('b', ['limitless', 'pokedata']),
+    ],
+    [
+      make('a', ['limitless']),
+      make('b', ['pokedata']),
+      make('c', ['limitless']),
+    ],
+  ])
+    for (const input of permutations(groups)) {
+      const reconciled = reconcileSources(input);
+      assert.equal(reconciled.events.length, 0);
+      assert.equal(reconciled.quarantine.length, groups.length);
+      assert.ok(
+        reconciled.quarantine.every(
+          (q) => q.reason === 'unresolved-cross-source-identity',
+        ),
+      );
+      assert.equal(aggregate(input, options).coverage.matches, 0);
+    }
+  // A single supplier can use the same event name/date for distinct events.
+  assert.equal(
+    reconcileSources([make('a', ['limitless']), make('b', ['limitless'])])
+      .events.length,
+    2,
+  );
+  const sameSupplier = [make('a', ['limitless']), make('b', ['limitless'])];
+  for (const event of sameSupplier) {
+    const metadata = {
+      provider: 'organizer',
+      originalId: event.id,
+      url: 'https://example.test/metadata',
+      role: 'metadata' as const,
+    };
+    event.provenance.sources.push(metadata);
+  }
+  assert.equal(reconcileSources(sameSupplier).events.length, 2);
+});
 test('registered builds retain missing coverage and count a move once per slot', () => {
   const e = fixture();
   e.registrations[0].slots![0] = {

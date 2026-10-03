@@ -10,6 +10,11 @@ import { sourceSelection } from '../domain/filters';
 import { withEvidence } from './evidence-reader';
 import { LadderStore } from './ladder-store';
 import type { LadderSummary, LadderEnvironment } from '../domain/ladder';
+type PublicRefreshState = Pick<RefreshState, 'state' | 'attemptedAt'>;
+const publicStatus = (
+  status: RefreshState | null,
+): PublicRefreshState | null =>
+  status ? { state: status.state, attemptedAt: status.attemptedAt } : null;
 export type PublicDataset = Omit<
   PublishedDataset,
   'events' | 'collection' | 'quarantine'
@@ -32,12 +37,12 @@ export type PublicDataset = Omit<
 export type AppData = {
   current: PublicDataset | null;
   archives: PublicDataset[];
-  status: RefreshState | null;
+  status: PublicRefreshState | null;
   readError: boolean;
   now: string;
   ladder?: {
     catalog: LadderSummary[];
-    status: Partial<Record<LadderEnvironment, RefreshState | null>>;
+    status: Partial<Record<LadderEnvironment, PublicRefreshState | null>>;
     readError: boolean;
   };
 };
@@ -51,6 +56,18 @@ export function publicDataset(
 ): PublicDataset {
   const { events, collection, quarantine, views, ...rest } = d;
   source = sourceSelection(source);
+  const providerIds = [...new Set(events.flatMap(recordProviders))];
+  // Unknown saved selections stay visible, but must not create arbitrarily many
+  // equivalent recalculations of a cohort that already has published metrics.
+  const effectiveSource =
+    source === 'all' || source === 'none'
+      ? source
+      : sourceSelection(
+          source
+            .split(',')
+            .filter((id) => providerIds.includes(id))
+            .join(',') || 'none',
+        );
   const populationOptions = (views['all:0'] ?? Object.values(views)[0]).options;
   const population = populationOptions.interval
     ? selectEvents(events, {
@@ -68,25 +85,33 @@ export function publicDataset(
     regulation: datasetRegulation(d),
     views: (() => {
       const key = cohortKey(source, sheet, minPlayers, official);
+      const savedKey = cohortKey(effectiveSource, sheet, minPlayers, official);
       const view =
         views[key] ??
-        (source === 'all' && !official
+        views[savedKey] ??
+        (effectiveSource === 'all' && !official
           ? views[`${sheet}:${minPlayers}`]
           : undefined);
       // Provider combinations are calculated from this version's saved facts, never averaged or collected live.
       // Keep legacy archived single-provider views intact; dynamic subsets retain the frozen window.
       const selected =
         view ??
-        aggregate(events, {
+        aggregate(effectiveSource === 'none' ? [] : events, {
           ...(views['all:0'] ?? Object.values(views)[0]).options,
-          source,
+          source: effectiveSource,
           sheet: sheet as 'all' | 'open' | 'closed' | 'unknown',
           minPlayers,
           official,
         });
-      return { [key]: withEvidence(d.id, selected, db) };
+      const ready = withEvidence(d.id, selected, db);
+      return {
+        [key]:
+          source === effectiveSource
+            ? ready
+            : { ...ready, options: { ...ready.options, source } },
+      };
     })(),
-    providers: [...new Set(events.flatMap(recordProviders))].map((id) => ({
+    providers: providerIds.map((id) => ({
       id,
       name:
         id === 'limitless'
@@ -115,9 +140,8 @@ export function publicDataset(
     })),
   };
 }
-export function readAppData(): AppData {
+export function readAppData(path = databasePath()): AppData {
   const now = new Date().toISOString();
-  const path = databasePath();
   if (!existsSync(path))
     return { current: null, archives: [], status: null, readError: false, now };
   let store: Store | undefined;
@@ -134,8 +158,8 @@ export function readAppData(): AppData {
       ladder = {
         catalog: saved.catalog(),
         status: {
-          showdown: saved.status('showdown'),
-          champions: saved.status('champions'),
+          showdown: publicStatus(saved.status('showdown')),
+          champions: publicStatus(saved.status('champions')),
         },
         readError: false,
       };
@@ -150,7 +174,7 @@ export function readAppData(): AppData {
       archives: store
         .archives()
         .map((d) => publicDataset(d, 'all', 'all', 0, false, db)),
-      status: store.status(),
+      status: publicStatus(store.status()),
       readError: false,
       now,
       ladder,

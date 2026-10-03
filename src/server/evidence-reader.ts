@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { readEvidence } from './evidence-index';
 import type { Aggregate } from '../domain/types';
 
-const cache = new BoundedCache<Aggregate>(32);
+const caches = new WeakMap<DatabaseSync, BoundedCache<Aggregate>>();
 // Read-only supplement: no provider reads, calculation or missing-index builds.
 export function withEvidence(
   publication: string,
@@ -14,6 +14,11 @@ export function withEvidence(
   if (view.pokemon.every((r) => r.evidence?.version === EVIDENCE_VERSION))
     return view;
   if (!db) return view;
+  let cache = caches.get(db);
+  if (!cache) {
+    cache = new BoundedCache<Aggregate>(32);
+    caches.set(db, cache);
+  }
   const key = JSON.stringify([publication, EVIDENCE_VERSION, view.options]);
   const cached = cache.get(key);
   if (cached) return cached;

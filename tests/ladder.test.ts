@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
 import {
   parseChampions,
   parseShowdown,
@@ -55,6 +56,87 @@ test('Champions preserves rank, zero marginal percentages, teammate rank and sep
   assert.equal(d.rows[0].builds.teammates?.values[0].rank, 1);
   assert.equal(d.capturedAt, '2026-09-30T12:00:00.000Z');
   assert.equal(d.rows[1].builds.items, undefined);
+});
+
+test('Champions coalesces identical build tuples and excludes conflicting canonical labels without guessing ranks', () => {
+  const input = championsResponse();
+  input.teammates_list = [
+    ['Incineroar', '#1'],
+    ['incineroar', '#4'],
+    ['Garchomp', '#7'],
+  ];
+  input.natures_list = [
+    ['Naughty', '0.6'],
+    ['naughty', '0.6'],
+    ['Gentle', '0.2'],
+    ['gentle', '0.1'],
+  ];
+  const unchanged = structuredClone(input);
+  const d = parseChampions([input], [snapshot]);
+  assert.deepEqual(input, unchanged);
+  assert.deepEqual(
+    d.rows[0].builds.teammates?.values.map((v) => [v.name, v.rank]),
+    [['Garchomp', 7]],
+  );
+  assert.deepEqual(
+    d.rows[0].builds.natures?.values.map((v) => [v.name, v.percent]),
+    [['Naughty', 0.6]],
+  );
+  assert.equal(d.excluded.length, 2);
+  assert.ok(d.excluded.every((v) => /Conflicting duplicate/.test(v.reason)));
+  assert.ok(d.notes.some((v) => /Conflicting duplicate/.test(v)));
+});
+
+test('legacy Champions read correction preserves immutable bytes, identities and timestamps while updating visible exclusions', () => {
+  const store = new Store(':memory:');
+  const ladder = new LadderStore(store);
+  try {
+    const original = ladder.publish(
+      parseChampions([championsResponse()], [snapshot]),
+    );
+    const legacy = structuredClone(original);
+    legacy.rows[0].builds.teammates!.values.push({
+      ...legacy.rows[0].builds.teammates!.values[0],
+      rank: 4,
+    });
+    legacy.rows[0].builds.natures!.values.push({
+      ...legacy.rows[0].builds.natures!.values[0],
+    });
+    Reflect.deleteProperty(legacy, 'buildNormalizationVersion');
+    const bytes = gzipSync(JSON.stringify(legacy));
+    store.db
+      .prepare('UPDATE ladder_versions SET payload=? WHERE id=?')
+      .run(bytes, original.id);
+    const metadata = JSON.parse(
+      String(
+        store.db
+          .prepare('SELECT payload FROM ladder_summaries WHERE version_id=?')
+          .get(original.id)!.payload,
+      ),
+    );
+    delete metadata.buildNormalizationVersion;
+    store.db
+      .prepare('UPDATE ladder_summaries SET payload=? WHERE version_id=?')
+      .run(JSON.stringify(metadata), original.id);
+    const read = ladder.version(original.id)!;
+    assert.deepEqual(read.rows[0].builds.teammates?.values, []);
+    assert.equal(read.rows[0].builds.natures?.values.length, 1);
+    assert.equal(read.excluded.length, original.excluded.length + 1);
+    assert.equal(ladder.catalog()[0].excludedCount, read.excluded.length);
+    assert.equal(read.id, original.id);
+    assert.equal(read.publishedAt, original.publishedAt);
+    assert.equal(read.capturedAt, original.capturedAt);
+    assert.deepEqual(read.snapshots, original.snapshots);
+    assert.deepEqual(ladder.version(original.id), read);
+    assert.deepEqual(
+      store.db
+        .prepare('SELECT payload FROM ladder_versions WHERE id=?')
+        .get(original.id)!.payload,
+      new Uint8Array(bytes),
+    );
+  } finally {
+    store.close();
+  }
 });
 test('Champions rejects mixed capture, wrong mode, unknown identity and unsupported season evidence', () => {
   const first = championsResponse();

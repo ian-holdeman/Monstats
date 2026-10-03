@@ -138,7 +138,7 @@ test('detail groups scroll independently, keep sticky sorts, reset ordering, dis
   }
 });
 
-test('conditional discovery keeps both bounded groups, independent pagination, scrolling and empty membership under all sorts', async ({
+test('calculator toggles one bounded Best/Worst list, resets pagination and scrolling, and preserves sign membership under all sorts', async ({
   page,
 }) => {
   let emptyWorst = false;
@@ -198,9 +198,8 @@ test('conditional discovery keeps both bounded groups, independent pagination, s
     exact: true,
   });
   await expect(best.locator('.combination-result')).toHaveCount(20);
-  await expect(worst.locator('.combination-result')).toHaveCount(20);
+  await expect(worst).toHaveCount(0);
   await expect(best).toContainText('+0.0 points');
-  await expect(worst).toContainText('0.0 points');
   const scroll = best.getByRole('region', {
     name: 'Best combination rows',
     exact: true,
@@ -212,13 +211,23 @@ test('conditional discovery keeps both bounded groups, independent pagination, s
     .toBeGreaterThan(0);
   await best.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(best.locator('.combination-result')).toHaveCount(15);
-  await expect(worst.locator('.combination-result')).toHaveCount(20);
   await expect.poll(() => scroll.evaluate((el) => el.scrollTop)).toBe(0);
+  const ranking = page.getByRole('combobox', { name: 'Ranking', exact: true });
+  await ranking.selectOption('worst');
+  await expect(worst.locator('.combination-result')).toHaveCount(20);
+  await expect(best).toHaveCount(0);
+  await expect(worst).toContainText('0.0 points');
+  await expect(worst.locator('.matchup-pagination')).toContainText(
+    '1–20 of 35',
+  );
   for (const sort of ['winRate', 'evidence', 'difference']) {
     await page.getByRole('combobox', { name: 'Sort by' }).selectOption(sort);
-    await expect(best.locator('.combination-result')).toHaveCount(20);
     await expect(worst.locator('.combination-result')).toHaveCount(20);
+    await expect(best).toHaveCount(0);
   }
+  await ranking.selectOption('best');
+  await expect(best.locator('.combination-result')).toHaveCount(20);
+  await expect(worst).toHaveCount(0);
   await best.locator('.combination-evidence summary').first().click();
   await expect(best.locator('.combination-evidence[open]')).toContainText(
     'Candidate’s overall baseline',
@@ -229,13 +238,12 @@ test('conditional discovery keeps both bounded groups, independent pagination, s
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  expect((await worst.boundingBox())!.y).toBeGreaterThan(
-    (await best.boundingBox())!.y,
-  );
   emptyWorst = true;
+  await ranking.selectOption('worst');
   await page
     .getByRole('combobox', { name: 'Combination size' })
     .selectOption('2');
   await expect(worst).toContainText('No qualifying negative matchups');
   await expect(worst.locator('.combination-result')).toHaveCount(0);
+  await expect(best).toHaveCount(0);
 });

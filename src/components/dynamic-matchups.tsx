@@ -256,7 +256,7 @@ function ResultRow({
         </p>
       )}
       <details className="combination-evidence">
-        <summary>Evidence · {row.sample.matches} physical matches</summary>
+        <summary>{row.sample.matches} physical matches</summary>
         <Evidence
           sample={row.sample}
           label={matchup ? 'Against B' : 'Overall'}
@@ -388,16 +388,8 @@ export function DynamicMatchups({
     initialB.length ? 'difference' : 'winRate',
   );
   const [direction, setDirection] = useState<'best' | 'worst'>('best');
-  const [offset, updateOffset] = useState(0);
-  const [worstOffset, setWorstOffset] = useState(0);
-  function setOffset(value: number) {
-    updateOffset(value);
-    setWorstOffset(0);
-  }
+  const [offset, setOffset] = useState(0);
   const [savedResponse, setResponse] = useState<MatchupResponse | null>(null);
-  const [worstResponse, setWorstResponse] = useState<MatchupResponse | null>(
-    null,
-  );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -408,12 +400,11 @@ export function DynamicMatchups({
     mode,
     candidateSize,
     sort: sort === 'evidence' ? sort : opponent && b.length ? sort : 'winRate',
-    direction: mode === 'discover' && opponent ? 'best' : direction,
+    direction,
     offset,
     limit: 20,
   };
   const encoded = JSON.stringify(request);
-  const paired = mode === 'discover' && opponent && b.length > 0;
   const ready =
     (mode === 'discover' || a.length > 0) && (!opponent || b.length > 0);
   // An incomplete selection has no result. Retention only bridges valid reads.
@@ -424,8 +415,7 @@ export function DynamicMatchups({
       ([key, value]) =>
         JSON.stringify(value) ===
         JSON.stringify(response.request[key as keyof MatchupRequest]),
-    ) &&
-    (!paired || worstResponse?.request.offset === worstOffset);
+    );
   useEffect(() => {
     let stale = false;
     async function read() {
@@ -433,7 +423,6 @@ export function DynamicMatchups({
       if (stale) return;
       if (!ready) {
         setResponse(null);
-        setWorstResponse(null);
         setError('');
         setLoading(false);
         onContext(dataset.regulation ?? 'M-C');
@@ -443,19 +432,9 @@ export function DynamicMatchups({
       setError('');
       try {
         const primary: MatchupRequest = JSON.parse(encoded);
-        const [result, worst] = await Promise.all([
-          load(dataset, primary),
-          paired
-            ? load(dataset, {
-                ...primary,
-                direction: 'worst',
-                offset: worstOffset,
-              })
-            : Promise.resolve(null),
-        ]);
+        const result = await load(dataset, primary);
         if (!stale) {
           setResponse(result);
-          setWorstResponse(worst);
           setLoading(false);
           onContext(result.regulation);
         }
@@ -476,7 +455,7 @@ export function DynamicMatchups({
     };
     // Immutable publication and complete request identities govern reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset.id, encoded, ready, retry, paired, worstOffset]);
+  }, [dataset.id, encoded, ready, retry]);
   const catalog =
     response?.catalog ??
     Object.values(dataset.views)[0].pokemon.map((p) => ({
@@ -499,6 +478,7 @@ export function DynamicMatchups({
       setB(members);
       changeOpponent(true);
       setSize(1);
+      setDirection('best');
       return;
     }
     setA(members);
@@ -617,21 +597,19 @@ export function DynamicMatchups({
                 ))}
               </select>
             </label>
-            {!opponent && (
-              <label>
-                Ranking
-                <select
-                  value={direction}
-                  onChange={(e) => {
-                    setDirection(e.target.value as 'best' | 'worst');
-                    setOffset(0);
-                  }}
-                >
-                  <option value="best">Best</option>
-                  <option value="worst">Worst</option>
-                </select>
-              </label>
-            )}
+            <label>
+              Ranking
+              <select
+                value={direction}
+                onChange={(e) => {
+                  setDirection(e.target.value as 'best' | 'worst');
+                  setOffset(0);
+                }}
+              >
+                <option value="best">Best</option>
+                <option value="worst">Worst</option>
+              </select>
+            </label>
             <label>
               Sort by
               <select
@@ -711,24 +689,13 @@ export function DynamicMatchups({
             {shown!.b.length ? ` into ${names(shown!.b)} teams` : ' · overall'}
           </h2>
           {shown!.mode === 'discover' ? (
-            <div className={shown!.b.length ? 'results-pair' : ''}>
-              <DiscoveryResults
-                response={response}
-                current={!!current}
-                loading={loading}
-                inspect={inspect}
-                page={updateOffset}
-              />
-              {shown!.b.length > 0 && worstResponse && (
-                <DiscoveryResults
-                  response={worstResponse}
-                  current={!!current}
-                  loading={loading}
-                  inspect={inspect}
-                  page={setWorstOffset}
-                />
-              )}
-            </div>
+            <DiscoveryResults
+              response={response}
+              current={!!current}
+              loading={loading}
+              inspect={inspect}
+              page={setOffset}
+            />
           ) : response.rows.length ? (
             response.rows.map((row) => (
               <ResultRow

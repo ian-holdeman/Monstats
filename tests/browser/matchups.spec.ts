@@ -37,7 +37,7 @@ test('detail links, keyboard selection, mirrors, evidence and removal', async ({
   );
   await expect(result.getByText('50.0%', { exact: true })).toBeVisible();
   await expect(result.getByText('+25.0 points', { exact: true })).toBeVisible();
-  await result.getByText(/Evidence ·/).click();
+  await result.locator('.combination-evidence summary').click();
   await expect(
     result.locator('.combination-evidence p').filter({ hasText: 'Against B:' }),
   ).toContainText('team perspectives');
@@ -240,10 +240,10 @@ test('discovery supports all six sizes, valid mode sorts, and selects discovered
   ).toBeVisible();
   await expect(
     results.getByRole('region', { name: 'Worst combinations', exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.getByRole('combobox', { name: 'Ranking', exact: true }),
-  ).toHaveCount(0);
+  ).toHaveValue('best');
   for (let k = 2; k <= 6; k++) {
     await page
       .getByRole('combobox', { name: 'Combination size' })
@@ -348,7 +348,12 @@ test('discovered groups replace opponent B, reset size, preserve filters and man
     exact: true,
   });
   await expect(best).toBeVisible();
+  await expect(worst).toHaveCount(0);
+  await page
+    .getByRole('combobox', { name: 'Ranking', exact: true })
+    .selectOption('worst');
   await expect(worst).toBeVisible();
+  await expect(best).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await worst
     .getByRole('button', { name: 'Inspect Incineroar', exact: true })
@@ -367,7 +372,10 @@ test('discovered groups replace opponent B, reset size, preserve filters and man
     }),
   ).toBeVisible();
   await expect(best).toBeVisible();
-  await expect(worst).toBeVisible();
+  await expect(worst).toHaveCount(0);
+  await expect(
+    page.getByRole('combobox', { name: 'Ranking', exact: true }),
+  ).toHaveValue('best');
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

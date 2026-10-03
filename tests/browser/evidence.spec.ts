@@ -155,7 +155,9 @@ test('dynamic evidence volume ordering keeps the floor and manual zero results i
   const physical = await page
     .locator('.combination-evidence summary')
     .allTextContents();
-  const counts = physical.map((t) => Number(t.match(/Evidence · (\d+)/)![1]));
+  const counts = physical.map((t) =>
+    Number(t.match(/^(\d+) physical matches$/)![1]),
+  );
   expect(counts).toEqual([...counts].sort((a, b) => b - a));
   expect(Math.min(...counts)).toBeGreaterThanOrEqual(20);
   await page.getByRole('button', { name: 'Compare', exact: true }).click();

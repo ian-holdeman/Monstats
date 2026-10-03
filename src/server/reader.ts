@@ -19,6 +19,7 @@ export type PublicDataset = Omit<
   PublishedDataset,
   'events' | 'collection' | 'quarantine'
 > & {
+  detail?: string;
   providers: { id: string; name: string }[];
   sources: {
     id: string;
@@ -53,6 +54,7 @@ export function publicDataset(
   minPlayers = 0,
   official = false,
   db?: DatabaseSync,
+  detail?: string,
 ): PublicDataset {
   const { events, collection, quarantine, views, ...rest } = d;
   source = sourceSelection(source);
@@ -82,6 +84,7 @@ export function publicDataset(
   void quarantine;
   return {
     ...rest,
+    ...(detail ? { detail } : {}),
     regulation: datasetRegulation(d),
     views: (() => {
       const key = cohortKey(source, sheet, minPlayers, official);
@@ -103,7 +106,22 @@ export function publicDataset(
           minPlayers,
           official,
         });
-      const ready = withEvidence(d.id, selected, db);
+      const evidenced = withEvidence(d.id, selected, db);
+      const ready = detail
+        ? {
+            ...evidenced,
+            matchups:
+              detail === 'table'
+                ? {}
+                : { [detail]: evidenced.matchups[detail] ?? [] },
+            builds:
+              detail === 'table'
+                ? {}
+                : evidenced.builds?.[detail]
+                  ? { [detail]: evidenced.builds[detail] }
+                  : {},
+          }
+        : evidenced;
       return {
         [key]:
           source === effectiveSource
@@ -169,11 +187,11 @@ export function readAppData(path = databasePath()): AppData {
     const db = store.db;
     return {
       current: current
-        ? publicDataset(current, 'all', 'all', 0, false, db)
+        ? publicDataset(current, 'all', 'all', 0, false, db, 'table')
         : null,
       archives: store
         .archives()
-        .map((d) => publicDataset(d, 'all', 'all', 0, false, db)),
+        .map((d) => publicDataset(d, 'all', 'all', 0, false, db, 'table')),
       status: publicStatus(store.status()),
       readError: false,
       now,

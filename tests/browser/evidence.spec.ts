@@ -106,9 +106,7 @@ test('discreet shared and row disclosures support hover, focus, Escape and tap w
   await page
     .getByRole('button', { name: 'Farigiraf overall win rate: data context' })
     .focus();
-  await expect(page.getByRole('tooltip')).toContainText(
-    '0 physical matches/series',
-  );
+  await expect(page.getByRole('tooltip')).toContainText('0 matches');
   await expect(page.getByRole('tooltip')).not.toContainText('Player breadth');
   await page.keyboard.press('Escape');
   await page
@@ -155,9 +153,7 @@ test('dynamic evidence volume ordering keeps the floor and manual zero results i
   const physical = await page
     .locator('.combination-evidence summary')
     .allTextContents();
-  const counts = physical.map((t) =>
-    Number(t.match(/^(\d+) physical matches$/)![1]),
-  );
+  const counts = physical.map((t) => Number(t.match(/^(\d+) matches$/)![1]));
   expect(counts).toEqual([...counts].sort((a, b) => b - a));
   expect(Math.min(...counts)).toBeGreaterThanOrEqual(20);
   await page.getByRole('button', { name: 'Compare', exact: true }).click();
@@ -173,9 +169,7 @@ test('dynamic evidence volume ordering keeps the floor and manual zero results i
   await page
     .getByRole('button', { name: 'Farigiraf performance: data context' })
     .focus();
-  await expect(page.getByRole('tooltip')).toContainText(
-    '0 physical matches/series',
-  );
+  await expect(page.getByRole('tooltip')).toContainText('0 matches');
   await expect(page.locator('.combination-metrics')).toContainText(
     'Unavailable',
   );

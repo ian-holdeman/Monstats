@@ -1,4 +1,5 @@
 'use client';
+import { speciesSearch } from '@/domain/species-identity';
 import { QualityInfo } from './evidence-context';
 /* eslint-disable @next/next/no-img-element -- existing local cached artwork */
 import { useEffect, useRef, useState } from 'react';
@@ -200,7 +201,7 @@ export function LadderPanel({
   const detailLoaded =
     detail?.publication === visible?.id && detail?.row.id === selected;
   const filtered = (visible?.rows ?? []).filter((r) =>
-    r.name.toLowerCase().includes(query.trim().toLowerCase()),
+    speciesSearch(r.id, r.name, query),
   );
   const rows = [...filtered].sort((a, b) => {
     const av = a[sort.key],
@@ -209,7 +210,10 @@ export function LadderPanel({
     if (bv === null) return -1;
     const delta =
       typeof av === 'string' ? av.localeCompare(String(bv)) : av - Number(bv);
-    return (sort.ascending ? delta : -delta) || a.rank - b.rank;
+    return (
+      (sort.ascending ? delta : -delta) ||
+      (a.rank ?? Infinity) - (b.rank ?? Infinity)
+    );
   });
   function changeEnvironment(next: LadderEnvironment) {
     const nextDefault = defaultCohort(catalog, next);
@@ -599,7 +603,9 @@ export function LadderPanel({
                 </span>
                 <strong>
                   {shownEnvironment === 'champions'
-                    ? `#${pokemon.rank}`
+                    ? pokemon.rank === null
+                      ? '—'
+                      : `#${pokemon.rank}`
                     : pct(pokemon.usage)}
                 </strong>
               </div>
@@ -631,6 +637,9 @@ export function LadderPanel({
                 No detailed build distributions are published for this Pokémon
                 in this report.
               </p>
+            )}
+            {pokemon.identityNote && (
+              <p className="build-context">{pokemon.identityNote}</p>
             )}
             {!!pokemon.trend?.length && (
               <details className="build-card" open>
@@ -736,7 +745,9 @@ export function LadderPanel({
                     className="rank-column"
                     aria-hidden={shownEnvironment === 'champions'}
                   >
-                    {shownEnvironment === 'showdown' && <span>#{r.rank}</span>}
+                    {shownEnvironment === 'showdown' && (
+                      <span>{r.rank === null ? '—' : `#${r.rank}`}</span>
+                    )}
                   </td>
                   <td>
                     <button
@@ -757,7 +768,9 @@ export function LadderPanel({
                   </td>
                   <td className="numeric">
                     {shownEnvironment === 'champions'
-                      ? `#${r.rank}`
+                      ? r.rank === null
+                        ? '—'
+                        : `#${r.rank}`
                       : pct(r.usage)}
                   </td>
                   {shownEnvironment === 'showdown' && (
@@ -785,17 +798,16 @@ export function LadderPanel({
             </summary>
             <div className="evidence-content">
               <p>
-                Usage-population and unique-player counts are unavailable.
-                Showdown battles and raw appearances do not establish
-                independent registrations or BO3 series. Champions publishes
-                ranks and marginal builds without sample counts. These sources
-                remain separate from tournament outcomes; percentages never
-                imply missing counts.
+                Ladder sources stay separate. Unique-team counts are
+                unavailable. Ranks are not usage percentages; battles are not
+                unique teams or people. Neither source supplies team win rates.
               </p>
               <div>
-                {visible.notes.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
+                <p>
+                  {visible.environment === 'showdown'
+                    ? 'Usage is rating-weighted. Reports overlap; raw appearances and build counts describe different samples. Builds use published set weights.'
+                    : 'Champions supplies ranks and build marginals without sample counts or a complete observation window. Conflicting duplicate values are omitted.'}
+                </p>
                 <p>{visible.periodBasis}</p>
                 {visible.battles !== null && (
                   <p>
@@ -814,39 +826,29 @@ export function LadderPanel({
                   {visible.environment === 'champions'
                     ? `capture: ${visible.capturedAt}`
                     : `month: ${visible.month}`}
-                  . Published locally: {visible.publishedAt}.
+                  .
                 </p>
                 <p>
-                  Details are marginal distributions. Empty Showdown move slots
-                  are omitted because multiple empty slots can occur in one set.
-                  Spreads use source stat ordering HP / Atk / Def / SpA / SpD /
-                  Spe. Green stats are raised by the source nature; red stats
-                  are lowered. Champions spreads do not supply a paired nature
-                  and stay neutral.
+                  Independent build marginals do not establish a complete set.
+                  Stats follow HP / Atk / Def / SpA / SpD / Spe. Green/red marks
+                  explicit nature effects; unpaired spreads stay neutral.
                 </p>
                 <ul className="source-list">
-                  {visible.sources
-                    .filter((u) => !u.includes('/api/championsdoubles/'))
-                    .map((u) => (
-                      <li key={u}>
-                        <a href={u} target="_blank" rel="noreferrer">
-                          {u.includes('smogon')
-                            ? 'Smogon source report'
-                            : 'Official season evidence'}
-                        </a>
-                      </li>
-                    ))}
-                  {shownEnvironment === 'champions' && (
-                    <li>
-                      <a
-                        href="https://www.munchstats.com/about/"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        MunchStats capture methodology
-                      </a>
-                    </li>
-                  )}
+                  <li>
+                    <a
+                      href={
+                        visible.environment === 'showdown'
+                          ? `https://www.smogon.com/stats/${visible.month}/`
+                          : 'https://www.munchstats.com/about/'
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {visible.environment === 'showdown'
+                        ? 'Ladder data from Pokémon Showdown (Smogon)'
+                        : 'In-game data captured by MunchStats'}
+                    </a>
+                  </li>
                 </ul>
               </div>
             </div>

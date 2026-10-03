@@ -571,6 +571,7 @@ export async function collectOfficial(
           : 'victory-road-next-request';
       const until = store.state<number>(cooldownKey) ?? 0;
       if (until > Date.now()) throw new Error('Pokedata cooldown; retry later');
+      await store.checkpoint();
       const response = await fetcher(input, {
         ...init,
         ...(form
@@ -598,6 +599,7 @@ export async function collectOfficial(
             Math.max(300000, Number.isFinite(duration) ? duration : 300000),
         );
       }
+      await store.checkpoint();
       return response;
     }) as typeof fetch;
     const body = await fetchBounded(url, rateAware, options.signal);

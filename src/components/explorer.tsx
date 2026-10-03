@@ -1,5 +1,10 @@
 'use client';
-import { optionBounds } from '../domain/regulations';
+import { speciesSearch } from '@/domain/species-identity';
+import { BoundedCache } from '@/domain/bounded-cache';
+import {
+  contributingProviders,
+  providerUrl,
+} from '../domain/provider-attribution';
 /* eslint-disable @next/next/no-img-element -- artwork is a small, already local PNG served without an upstream optimizer */
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -17,7 +22,6 @@ import {
   ChartNoAxesColumnIncreasing,
 } from 'lucide-react';
 import { rankMatchups } from '@/domain/rankings';
-import { sourceMatches } from '@/domain/filters';
 import type {
   Aggregate,
   MatchupRow,
@@ -164,6 +168,7 @@ export function Explorer({
   );
   const [cohortPending, setCohortPending] = useState(false);
   const [cohortError, setCohortError] = useState(false);
+  const cohortCache = useRef(new BoundedCache<PublicDataset>(8));
   const heading = useRef<HTMLHeadingElement>(null);
   const openerId = useRef<string | null>(null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
@@ -176,6 +181,13 @@ export function Explorer({
   useEffect(() => {
     const controller = new AbortController();
     const key = cohortKey(source, sheet, minPlayers, official);
+    const detail = selected ?? 'table';
+    const cacheKey = JSON.stringify([
+      requestedDataset?.id,
+      EVIDENCE_VERSION,
+      key,
+      detail,
+    ]);
     async function load() {
       await Promise.resolve();
       if (!requestedDataset || tab === 'ladder') {
@@ -186,16 +198,29 @@ export function Explorer({
       setCohortPending(true);
       setCohortError(false);
       try {
-        const next = requestedDataset.views[key]
-          ? requestedDataset
-          : await fetch(
-              `/data/${encodeURIComponent(requestedDataset.id)}?${new URLSearchParams({ source, sheet, size: String(minPlayers), official: String(official), evidence: EVIDENCE_VERSION })}`,
-              { signal: controller.signal },
-            ).then((r) => {
-              if (!r.ok) throw new Error('Cached cohort unavailable');
-              return r.json() as Promise<PublicDataset>;
-            });
+        const next =
+          requestedDataset.views[key] &&
+          (!requestedDataset.detail || requestedDataset.detail === detail)
+            ? requestedDataset
+            : (cohortCache.current.get(cacheKey) ??
+              (await fetch(
+                `/data/${encodeURIComponent(requestedDataset.id)}?${new URLSearchParams({ source, sheet, size: String(minPlayers), official: String(official), evidence: EVIDENCE_VERSION, detail })}`,
+                { signal: controller.signal },
+              ).then((r) => {
+                if (!r.ok) throw new Error('Cached cohort unavailable');
+                return r.json() as Promise<PublicDataset>;
+              })));
         if (!controller.signal.aborted) {
+          if (!next) throw new Error('Saved cohort unavailable');
+          if (next.id !== requestedDataset.id)
+            throw new Error('Mismatched saved publication');
+          if (
+            Object.values(next.views).every((v) =>
+              v.pokemon.every((r) => r.evidence?.version === EVIDENCE_VERSION),
+            ) &&
+            JSON.stringify(next).length <= 2 * 1024 * 1024
+          )
+            cohortCache.current.set(cacheKey, next);
           setLoadedDataset(next);
           setCohortPending(false);
         }
@@ -210,7 +235,7 @@ export function Explorer({
     return () => controller.abort();
     // Publication identity changes trigger an immutable local read; interaction state persists.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedDataset?.id, filters, tab]);
+  }, [requestedDataset?.id, filters, tab, selected]);
   const dataset = requestedDataset ? loadedDataset : null;
   const view = dataset ? (Object.values(dataset.views)[0] ?? null) : null;
   const pokemon = view?.pokemon.find(
@@ -218,7 +243,7 @@ export function Explorer({
   );
   const filtered = (view?.pokemon ?? []).filter(
     (r) =>
-      r.name.toLowerCase().includes(query.toLowerCase().trim()) &&
+      speciesSearch(r.id, r.name, query) &&
       (!hideNotices || !performanceReasons(r).length),
   );
   const rows =
@@ -544,40 +569,50 @@ export function Explorer({
                         </button>
                       </div>
                     )}
-                    <BuildCards
-                      builds={view.builds?.[pokemon.id]}
-                      name={pokemon.name}
-                      choose={(id) => {
-                        const row = view.pokemon.find((r) => r.id === id);
-                        if (row) choose(row);
-                      }}
-                    />
-                    <div className="results-pair">
-                      <Matchups
-                        selected={pokemon.id}
-                        name={pokemon.name}
-                        view={view}
-                        dataset={dataset}
-                        hideNotices={hideNotices}
-                        direction="best"
-                        choose={(id) => {
-                          const row = view.pokemon.find((r) => r.id === id);
-                          if (row) choose(row);
-                        }}
-                      />
-                      <Matchups
-                        selected={pokemon.id}
-                        name={pokemon.name}
-                        view={view}
-                        dataset={dataset}
-                        hideNotices={hideNotices}
-                        direction="worst"
-                        choose={(id) => {
-                          const row = view.pokemon.find((r) => r.id === id);
-                          if (row) choose(row);
-                        }}
-                      />
-                    </div>
+                    {dataset.detail && dataset.detail !== selected ? (
+                      <p role="status" className="detail-note">
+                        {cohortError
+                          ? 'Details unavailable. Reapply Filters to retry.'
+                          : 'Loading saved details…'}
+                      </p>
+                    ) : (
+                      <>
+                        <BuildCards
+                          builds={view.builds?.[pokemon.id]}
+                          name={pokemon.name}
+                          choose={(id) => {
+                            const row = view.pokemon.find((r) => r.id === id);
+                            if (row) choose(row);
+                          }}
+                        />
+                        <div className="results-pair">
+                          <Matchups
+                            selected={pokemon.id}
+                            name={pokemon.name}
+                            view={view}
+                            dataset={dataset}
+                            hideNotices={hideNotices}
+                            direction="best"
+                            choose={(id) => {
+                              const row = view.pokemon.find((r) => r.id === id);
+                              if (row) choose(row);
+                            }}
+                          />
+                          <Matchups
+                            selected={pokemon.id}
+                            name={pokemon.name}
+                            view={view}
+                            dataset={dataset}
+                            hideNotices={hideNotices}
+                            direction="worst"
+                            choose={(id) => {
+                              const row = view.pokemon.find((r) => r.id === id);
+                              if (row) choose(row);
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ) : !rows.length ? (
@@ -1076,18 +1111,14 @@ function Evidence({
       <div className="evidence-content">
         <div>
           <p>
-            Small samples use fewer than 100 registrations for usage, or 100
-            distinct physical matches/series for performance. Build samples use
-            registrations with that field known. Unknown counts remain
-            unavailable.
+            Small samples have fewer than 100 registrations or matches. Unknown
+            counts are unavailable, not zero.
           </p>
           <p>
-            {evidenceSortHelp} Automatic rankings still require{' '}
-            {dataset.floor.matches} physical matches, {dataset.floor.events}{' '}
-            events and {dataset.floor.players} namespaced participant
-            identities. Passing these floors earns no confidence label.
-            Comparable official and community events receive equal treatment;
-            100+ entrants means large.
+            {evidenceSortHelp} Rankings require {dataset.floor.matches} matches,{' '}
+            {dataset.floor.events} events and {dataset.floor.players} namespaced
+            participant identities; source IDs do not establish unique people.
+            Large events have 100+ entrants.
           </p>
           {pokemon && (
             <p>
@@ -1096,20 +1127,17 @@ function Evidence({
             </p>
           )}
           <p>
-            Usage counts registered teams. Win rate shows how often teams
-            containing this Pokémon won eligible matches. Matchups compare those
-            teams against teams containing another Pokémon, with both complete
-            teams known.
+            Usage counts registered teams, not Pokémon brought or used in
+            battle. Performance describes teams containing the selection, with
+            both teams resolved.
           </p>
           <p>
-            A BO3 series counts as one match. Overlapping teams can contribute
-            to multiple comparisons. Change vs overall compares a performer’s
-            matchup win rate with its overall rate in these same filters. A
-            change from 50% to 55% is +5 percentage points. Build percentages
-            use sets with that field known; a set can include multiple moves.
-            Teammates shows the share of complete registrations containing the
-            selected Pokémon that also register each teammate; a team can
-            register multiple teammates.
+            A best-of-three series counts as one match; mirrors can supply two
+            perspectives. Overlapping rows cannot be summed. Change vs overall
+            is the percentage-point difference from the same selection’s
+            comparable baseline, not proof of a counter. Build shares use known
+            fields; independent marginals do not establish a complete set.
+            Teammates use complete registrations containing the selection.
           </p>
         </div>
         <div>
@@ -1117,34 +1145,28 @@ function Evidence({
             {view.coverage.registrations} teams · {view.coverage.events} events
             · {view.coverage.matches} matches. Saved coverage through{' '}
             {date(dataset.asOf)}. Missing teams and unresolved results are
-            excluded. All sheets includes events with unknown sheet type.
-            Sources can have incomplete coverage.
+            excluded. All pools compatible deduplicated evidence; All sheets
+            includes unknown sheets. Coverage can be incomplete.
           </p>
           <ul className="source-list">
-            {dataset.sources
-              .filter(
-                (e) =>
-                  e.players >= view.options.minPlayers &&
-                  Date.parse(e.date) <= Date.parse(view.options.asOf) &&
-                  Date.parse(e.date) >= optionBounds(view.options).start &&
-                  (!view.options.official || e.official) &&
-                  sourceMatches(view.options.source, e.providers) &&
-                  (view.options.sheet === 'all' ||
-                    e.sheet.visibility === view.options.sheet),
-              )
-              .map((e) => (
-                <li key={e.id}>
-                  <a href={e.url} target="_blank" rel="noreferrer">
-                    {e.name}
+            {contributingProviders(dataset, view).map((provider) => (
+              <li key={provider.id}>
+                {providerUrl(provider.id) ? (
+                  <a
+                    href={providerUrl(provider.id)!}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Tournament data from {provider.name}
                   </a>
-                  <small>
-                    {e.teams} teams{e.official ? ' · Masters' : ''}
-                    {e.missingTeams > 0
-                      ? ` · ${e.missingTeams} unavailable`
-                      : ''}
-                  </small>
-                </li>
-              ))}
+                ) : (
+                  <span>Tournament data from {provider.name}</span>
+                )}
+              </li>
+            ))}
+            {!contributingProviders(dataset, view).length && (
+              <li>No contributing providers in this cohort.</li>
+            )}
           </ul>
         </div>
       </div>

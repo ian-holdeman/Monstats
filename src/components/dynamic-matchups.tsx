@@ -1,4 +1,5 @@
 'use client';
+import { speciesSearch } from '@/domain/species-identity';
 /* eslint-disable @next/next/no-img-element -- local cached artwork */
 import { useEffect, useState, useRef } from 'react';
 import { Toolbar } from './tournament-toolbar';
@@ -97,9 +98,7 @@ function Selector({
   }
   const choices = catalog
     .filter(
-      (p) =>
-        !members.includes(p.id) &&
-        p.name.toLowerCase().includes(search.toLowerCase().trim()),
+      (p) => !members.includes(p.id) && speciesSearch(p.id, p.name, search),
     )
     .slice(0, 12);
   return (
@@ -256,7 +255,9 @@ function ResultRow({
         </p>
       )}
       <details className="combination-evidence">
-        <summary>{row.sample.matches} physical matches</summary>
+        <summary>
+          {row.sample.matches} {row.sample.matches === 1 ? 'match' : 'matches'}
+        </summary>
         <Evidence
           sample={row.sample}
           label={matchup ? 'Against B' : 'Overall'}
@@ -267,11 +268,6 @@ function ResultRow({
             label="Candidate’s overall baseline (includes B)"
           />
         )}
-        <p>
-          Both orientations can qualify. Mirrors contribute one win and one loss
-          per physical result. Participant identities are namespaced source
-          identities.
-        </p>
       </details>
     </article>
   );
@@ -724,36 +720,31 @@ export function DynamicMatchups({
           <details className="matchup-methodology">
             <summary>About these results</summary>
             <p>
-              Small match samples contain fewer than 100 distinct physical
-              matches/series. Matchup and baseline samples are assessed
-              separately. Largest-event share counts distinct physical results.
+              Small samples have fewer than 100 matches; matchup and baseline
+              are assessed separately. A best-of-three series counts as one
+              match.
+            </p>
+            <p>{evidenceSortHelp}</p>
+            <p>
+              Results describe registered teams containing every selection, not
+              Pokémon brought or used in battle. Change vs overall is a
+              percentage-point difference from the same combination’s comparable
+              baseline, not proof of a counter.
             </p>
             <p>
-              {evidenceSortHelp} Event attendance and source classification are
-              context; comparable official and community events receive equal
-              treatment.
+              Rankings require {response.floor.matches} matches,{' '}
+              {response.floor.events} events and {response.floor.players}{' '}
+              candidate-side participant identities. Rows overlap and cannot be
+              summed. Identical combinations are excluded from discovery; manual
+              mirrors remain available. Source IDs do not establish unique
+              people.
             </p>
             <p>
-              Registered teams containing every selected Pokémon qualify; extra
-              members are unrestricted. Six selections identify species
-              composition, regardless of sets or slot order. These are
-              tournament associations, not predictions of individual battles or
-              evidence of brought Pokémon.
-            </p>
-            <p>
-              Automatic rankings require {response.floor.matches} distinct
-              physical matches, {response.floor.events} events and{' '}
-              {response.floor.players} candidate-side participant identities.
-              This provisional floor is not a confidence guarantee. Candidate
-              rows overlap and counts cannot be summed. Exact identical
-              combinations are omitted from matchup discovery; manual mirrors
-              remain available.
-            </p>
-            <p>
-              Publication {response.publication} · Source window ends{' '}
-              {new Date(response.asOf).toISOString()} · {response.calculation} /{' '}
-              {response.index}. Ladder captures and monthly usage do not enter
-              these calculations.
+              Saved tournament coverage through{' '}
+              {new Date(response.asOf).toLocaleDateString('en-US', {
+                timeZone: 'America/Denver',
+              })}
+              . Ladder data stays separate.
             </p>
           </details>
         </div>

@@ -68,6 +68,7 @@ export type RecordAccounting = {
   conflictingMatchRecords: number;
 };
 export type NormalizedEvent = {
+  identityCorrection?: string;
   id: string;
   name: string;
   regulation: string;

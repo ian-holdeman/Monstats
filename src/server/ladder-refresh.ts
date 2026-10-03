@@ -41,6 +41,7 @@ export class LadderClient {
         await pace(due - Date.now(), undefined, { signal: this.signal });
       this.store.saveState('ladder-next-read:munchstats', Date.now() + 10000);
     }
+    await this.store.checkpoint();
     const response = await this.fetcher(url, {
       signal: this.signal
         ? AbortSignal.any([this.signal, AbortSignal.timeout(45000)])
@@ -60,6 +61,7 @@ export class LadderClient {
           Math.max(1000, Number.isFinite(duration) ? duration : 60000),
       );
     }
+    await this.store.checkpoint();
     if (!response.ok)
       throw new Error(
         `${new URL(url).hostname}: HTTP ${response.status} at ${url}`,

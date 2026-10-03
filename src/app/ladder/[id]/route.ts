@@ -4,10 +4,24 @@ import { LadderStore } from '@/server/ladder-store';
 import { databasePath } from '@/server/paths';
 import { BoundedCache } from '@/domain/bounded-cache';
 import type { LadderDataset } from '@/domain/ladder';
+import { withReadSnapshot } from '@/server/cloud/reader';
 // The two most recently viewed immutable publications remain decoded across detail reads.
 const versions = new BoundedCache<LadderDataset>(2);
 export const dynamic = 'force-dynamic';
 export async function GET(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    return await withReadSnapshot(() => readLadder(request, context));
+  } catch {
+    return Response.json(
+      { error: 'Saved ladder unavailable' },
+      { status: 503 },
+    );
+  }
+}
+async function readLadder(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {

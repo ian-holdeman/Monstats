@@ -1,5 +1,5 @@
 .dynamic-matchups .toolbar {
-  justify-content: flex-end;
+  justify-content: center;
   height: 48px;
 }
 .matchup-filter-summary {
@@ -168,7 +168,7 @@
   font-size: 18px;
 }
 .discovery-panel .combination-metrics span {
-  font-size: 10px;
+  font-size: 12px;
 }
 .discovery-panel .combination-metrics small {
   display: none;
@@ -238,7 +238,7 @@
   gap: 2px;
 }
 .combination-metrics span {
-  font-size: 12px;
+  font-size: 13px;
   color: #ffffffcf;
 }
 .combination-metrics strong {
@@ -254,7 +254,8 @@
 }
 .combination-evidence {
   margin-top: 14px;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 .combination-evidence summary {
   color: #ffffffe0;

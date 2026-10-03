@@ -1,8 +1,9 @@
 import { Dex } from '@pkmn/dex';
 import { z } from 'zod';
 import { rejection } from './analytics';
+import { analyticalSpeciesId } from './species-identity';
 import type { NormalizedEvent, Sheet, Slot, Snapshot } from './types';
-export const NORMALIZATION_VERSION = 'masters-champions-v4';
+export const NORMALIZATION_VERSION = 'masters-champions-v5-sinistcha';
 const nullableText = z.string().nullish();
 const rawSlot = z
   .object({
@@ -104,10 +105,12 @@ export function normalizeSlot(input: unknown): Slot {
     fromId = raw.id ? Dex.species.get(raw.id) : null;
   if (
     !fromName.exists ||
-    (fromId && (!fromId.exists || fromId.id !== fromName.id))
+    (fromId &&
+      (!fromId.exists ||
+        analyticalSpeciesId(fromId.id) !== analyticalSpeciesId(fromName.id)))
   )
     throw new Error(`Unresolved or conflicting identity: ${raw.name}`);
-  let canonical = fromName;
+  let canonical = Dex.species.get(analyticalSpeciesId(fromName.id));
   let derivedForm: string | null = null;
   if (raw.item) {
     const item = Dex.items.get(raw.item);

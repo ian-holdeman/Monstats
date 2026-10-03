@@ -4,6 +4,7 @@ import { statSync } from 'node:fs';
 import { databasePath } from './paths';
 import type { AppData } from './reader';
 import { EVIDENCE_VERSION } from '../domain/evidence';
+import { withReadSnapshot } from './cloud/reader';
 
 export type DatasetRead = {
   kind: 'dataset';
@@ -13,6 +14,8 @@ export type DatasetRead = {
   sheet: string;
   minPlayers: number;
   official: boolean;
+  gzip?: boolean;
+  detail?: string;
 };
 export type ServingCommand = DatasetRead | { kind: 'app'; path: string };
 export type DatasetResponse = {
@@ -270,21 +273,25 @@ const shared = new ServingReader();
 export async function readSavedDataset(
   input: Omit<DatasetRead, 'kind' | 'path'>,
 ) {
-  const result = await shared.read({
-    kind: 'dataset',
-    path: databasePath(),
-    ...input,
+  return withReadSnapshot(async () => {
+    const result = await shared.read({
+      kind: 'dataset',
+      path: databasePath(),
+      ...input,
+    });
+    if (result.kind !== 'dataset')
+      throw new ServingUnavailableError('Invalid reader response');
+    return result;
   });
-  if (result.kind !== 'dataset')
-    throw new ServingUnavailableError('Invalid reader response');
-  return result;
 }
 export async function readPageData(): Promise<AppData> {
   try {
-    const result = await shared.read({ kind: 'app', path: databasePath() });
-    if (result.kind !== 'app')
-      throw new ServingUnavailableError('Invalid reader response');
-    return result.data;
+    return await withReadSnapshot(async () => {
+      const result = await shared.read({ kind: 'app', path: databasePath() });
+      if (result.kind !== 'app')
+        throw new ServingUnavailableError('Invalid reader response');
+      return result.data;
+    });
   } catch {
     return {
       current: null,

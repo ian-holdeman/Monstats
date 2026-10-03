@@ -29,6 +29,9 @@ import {
 } from '../domain/regulations';
 export class Store {
   db: DatabaseSync;
+  // Local mode is already durable in SQLite. Cloud writers replace this hook
+  // with a fenced remote checkpoint; readers never install or invoke it.
+  checkpoint: () => Promise<void> = async () => {};
   constructor(
     path: string,
     readOnly = false,

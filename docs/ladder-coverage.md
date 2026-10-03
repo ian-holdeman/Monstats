@@ -17,6 +17,8 @@ Build distributions are separate marginals. A commonly used nature and spread ca
 
 For Champions captures, identical duplicate build values count once. Conflicting values for the same canonical label are omitted with a source-quality note; remaining percentages and ranks are not renormalized or renumbered. Original source evidence is preserved.
 
+Sinistcha's cosmetic forms share one identity. Compatible Showdown rows use their common report denominators and published build weights. Separate Champions form ranks and unweighted build shares cannot establish a combined value, so those values remain unavailable. Reports from different sources, periods, formats or rating cutoffs are never pooled.
+
 Collection failures retain prior publications. The displayed source, period, format, and rating describe the data actually shown after applying filters.
 
 Sources: [Smogon monthly statistics](https://www.smogon.com/stats/) and [MunchStats in-game capture](https://www.munchstats.com/about/).

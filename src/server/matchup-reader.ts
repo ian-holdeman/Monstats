@@ -10,6 +10,7 @@ import {
 import { scanMatchupGroups } from './matchup-query-worker';
 import { EVIDENCE_VERSION } from '../domain/evidence';
 import { MATCHUP_RANKING } from '../domain/rankings';
+import { withReadSnapshot } from './cloud/reader';
 
 const cache = new BoundedCache<MatchupResponse>(32);
 const pending = new Map<string, Promise<MatchupResponse>>();
@@ -27,6 +28,9 @@ async function runBounded<T>(task: () => Promise<T>): Promise<T> {
   }
 }
 export async function readMatchups(id: string, input: MatchupRequest) {
+  return withReadSnapshot(() => readPinnedMatchups(id, input));
+}
+async function readPinnedMatchups(id: string, input: MatchupRequest) {
   const path = databasePath(),
     store = new Store(path, true);
   let owned = false;

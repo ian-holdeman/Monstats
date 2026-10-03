@@ -4,6 +4,7 @@
 !src/**
 !scripts/
 !scripts/**
+scripts/seed-test.ts
 !config/
 !config/**
 !public/

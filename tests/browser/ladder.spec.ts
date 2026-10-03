@@ -27,7 +27,7 @@ test('both Ladder usage headers stay clean and sortable while source limits rema
     ).toHaveCount(1);
     await page.getByText('About the data', { exact: true }).click();
     await expect(page.locator('.evidence-content')).toContainText(
-      source === 'Showdown' ? 'Usage-population' : 'ranks',
+      source === 'Showdown' ? 'Unique-team counts are unavailable' : 'ranks',
     );
     await page.getByText('About the data', { exact: true }).click();
   }

@@ -204,14 +204,42 @@ async function hashes(dir: string): Promise<Record<string, string>> {
   }
   return result;
 }
-export function checkDatabase(path: string) {
+export function checkDatabase(
+  path: string,
+  options: { sealed?: boolean } = {},
+) {
   const store = new Store(path, true);
   try {
-    const check = store.db.prepare('PRAGMA integrity_check').all();
-    if (check.length !== 1 || check[0].integrity_check !== 'ok')
+    const pragma = options.sealed ? 'quick_check' : 'integrity_check';
+    const check = store.db.prepare(`PRAGMA ${pragma}`).all();
+    if (check.length !== 1 || check[0][pragma] !== 'ok')
       throw new Error('SQLite integrity check failed');
     if (store.db.prepare('PRAGMA foreign_key_check').all().length)
       throw new Error('Foreign key integrity failed');
+    if (options.sealed) {
+      // Only use after checksum-pinned download of an artifact fully checked
+      // by createServingArtifact. Exact bytes establish the logical parity;
+      // re-decoding all saved versions and scanning every result is redundant.
+      for (const row of store.db
+        .prepare('SELECT DISTINCT version_id FROM pointers')
+        .all()) {
+        const meta = indexMetadata(store.db, String(row.version_id));
+        if (
+          !meta ||
+          meta.publication !== row.version_id ||
+          meta.index !== MATCHUP_INDEX ||
+          meta.calculation !== MATCHUP_CALCULATION
+        )
+          throw new Error('Sealed publication/index metadata missing');
+      }
+      return {
+        integrity: 'ok',
+        publication: store.db
+          .prepare("SELECT version_id FROM pointers WHERE name='active'")
+          .get()?.version_id as string | undefined,
+        schema: store.db.prepare('PRAGMA user_version').get()?.user_version,
+      };
+    }
     for (const row of store.db
       .prepare('SELECT DISTINCT version_id FROM pointers')
       .all()) {

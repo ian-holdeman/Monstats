@@ -18,6 +18,8 @@ Build distributions use registrations where that field is known. Move and teamma
 
 Canonical identities distinguish source species, held item, and derived form. A registered Mega stone establishes an available form, not proof that evolution occurred. Registration does not establish which Pokémon were brought or led, or which moves were used.
 
+Sinistcha's Unremarkable and Masterpiece cosmetic forms share one analytical identity. Original source names and slots are retained; other form distinctions stay unchanged.
+
 ## Results and comparisons
 
 Eligible outcomes are decisive competitive matches or series with both complete teams resolved. One best-of-three series is one physical result. Swiss/top cut and best-of-one/best-of-three events are pooled within compatible cohorts.

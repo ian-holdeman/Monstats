@@ -58,3 +58,14 @@ npm run test:e2e
 ```
 
 Offline tests verify application behavior. Live source audits are separate.
+
+## Linux container
+
+The Dockerfile builds the app and compiled workers together with Node 24.19.0 and lockfile dependencies. Its build context excludes local databases, credentials, private documentation and QA output. The container listens on `0.0.0.0:$PORT` (8080 by default), while the normal local command keeps its loopback default.
+
+```sh
+docker build --platform linux/amd64 -t monstats .
+docker run --rm -p 127.0.0.1:3200:8080 --mount type=bind,source=/absolute/path/to/restored-data,target=/tmp/monstats monstats
+```
+
+Use a verified restored data directory for a rehearsal. Keep collection under one owner; browsing does not fetch upstream data. Cloud operation uses private immutable artifacts and a generation-fenced control object, rather than sharing a live SQLite file between containers. Reader, dispatcher and writer identities require separate permissions. Cloud runtime settings and recovery procedures belong in the deployment operator's private runbook.

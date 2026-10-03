@@ -45,7 +45,29 @@ export function buildSummaries(
   >();
   for (const event of events)
     for (const registration of event.registrations) {
+      const groups = new Map<string, NonNullable<typeof registration.slots>>();
       for (const slot of registration.slots ?? []) {
+        const group = groups.get(slot.id) ?? [];
+        group.push(slot);
+        groups.set(slot.id, group);
+      }
+      for (const group of groups.values()) {
+        // Cosmetic aliases in a saved registration are one analytical member.
+        // Preserve its slots; conflicting set fields are unknown, never guessed.
+        const slot = { ...group[0] };
+        for (const field of [
+          'item',
+          'ability',
+          'moves',
+          'nature',
+          'stats',
+        ] as const)
+          if (
+            group.some(
+              (s) => JSON.stringify(s[field]) !== JSON.stringify(slot[field]),
+            )
+          )
+            Object.assign(slot, { [field]: null });
         identities.set(slot.id, slot.name);
         if (!counters.has(slot.id))
           counters.set(

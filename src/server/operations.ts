@@ -162,6 +162,7 @@ export async function runScheduled(
       };
       store.saveState(`run:${run.id}`, run);
       if (run.kind === 'final') store.saveState(`final:${run.regulation}`, run);
+      await store.checkpoint();
       const timeout = AbortSignal.timeout(Math.max(1, run.deadline - now));
       const signal = options.signal
         ? AbortSignal.any([options.signal, timeout])

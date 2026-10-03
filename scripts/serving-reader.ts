@@ -1,5 +1,6 @@
 import { parentPort } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { Store } from '../src/server/store';
 import { publicDataset, readAppData } from '../src/server/reader';
 import { EVIDENCE_VERSION } from '../src/domain/evidence';
@@ -29,14 +30,18 @@ function execute(command: ServingCommand): ServingResponse {
       command.minPlayers,
       command.official,
       store.db,
+      command.detail,
     );
     const cacheable = Object.values(output.views).every((view) =>
       view.pokemon.every((row) => row.evidence?.version === EVIDENCE_VERSION),
     );
+    const json = JSON.stringify(output);
     return {
       kind: 'dataset',
       status: 200,
-      body: new TextEncoder().encode(JSON.stringify(output)),
+      body: command.gzip
+        ? new Uint8Array(gzipSync(json))
+        : new TextEncoder().encode(json),
       cacheable,
     };
   } finally {

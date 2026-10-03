@@ -1,7 +1,9 @@
 import { Dex } from '@pkmn/dex';
+import { analyticalSpeciesId } from './species-identity';
 
 export const ARTWORK_VERSION = 'mega-coverage-v2';
-export const spriteUrl = (id: string) => `/sprites/${id}?v=${ARTWORK_VERSION}`;
+export const spriteUrl = (id: string) =>
+  `/sprites/${analyticalSpeciesId(id)}?v=${ARTWORK_VERSION}`;
 // Acquisition IDs do not change statistical identities. Source contribution/credit:
 // https://github.com/PokeAPI/sprites/pull/236#issuecomment-4722684098
 const megaSprites: Record<string, number> = {

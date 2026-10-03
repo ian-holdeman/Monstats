@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { validateArtwork } from '@/server/artwork';
+import { dataDirectory } from '@/server/paths';
+import { withReadSnapshot } from '@/server/cloud/reader';
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -8,12 +10,10 @@ export async function GET(
   const { id } = await params;
   if (!/^[a-z0-9]+$/.test(id)) return new Response(null, { status: 404 });
   try {
-    const bytes = await readFile(
-      /* turbopackIgnore: true */
-      resolve(
-        process.env.MONSTATS_DATA_DIR ?? '.monstats',
-        'sprites',
-        `${id}.png`,
+    const bytes = await withReadSnapshot(() =>
+      readFile(
+        /* turbopackIgnore: true */
+        resolve(dataDirectory(), 'sprites', `${id}.png`),
       ),
     );
     await validateArtwork(bytes);

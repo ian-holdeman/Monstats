@@ -3,6 +3,7 @@ import {
   ServingCapacityError,
 } from '@/server/serving-reader';
 import { sourceSelection } from '@/domain/filters';
+import { acceptsGzip } from '@/server/response-encoding';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -16,6 +17,9 @@ export async function GET(
   const sheet = query.get('sheet') ?? 'all',
     size = Number(query.get('size') ?? 0);
   const official = query.get('official') ?? 'false';
+  const detail = query.get('detail') ?? undefined;
+  if (detail && !/^[a-z0-9]{1,80}$/.test(detail))
+    return new Response(null, { status: 400 });
   if (!['all', 'open', 'closed'].includes(sheet) || ![0, 100].includes(size))
     return new Response(null, { status: 400 });
   if (!['false', 'true'].includes(official))
@@ -26,12 +30,15 @@ export async function GET(
     return new Response(null, { status: 400 });
   }
   try {
+    const gzip = acceptsGzip(request.headers.get('accept-encoding'));
     const output = await readSavedDataset({
       id,
       source,
       sheet,
       minPlayers: size,
       official: official === 'true',
+      gzip,
+      detail,
     });
     if (output.status !== 200)
       return new Response(null, { status: output.status });
@@ -39,6 +46,8 @@ export async function GET(
     return new Response(output.body, {
       headers: {
         'Content-Type': 'application/json',
+        Vary: 'Accept-Encoding',
+        ...(gzip ? { 'Content-Encoding': 'gzip' } : {}),
         'Cache-Control': output.cacheable
           ? 'private, max-age=31536000, immutable'
           : 'private, no-store',

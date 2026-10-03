@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers';
+import { gunzipSync } from 'node:zlib';
 import { Store, publish } from '../src/server/store';
 import { fixture } from './fixtures';
 import { GET } from '../src/app/data/[id]/route';
@@ -29,6 +30,43 @@ before(async () => {
     format: 'esm',
     packages: 'external',
   });
+});
+
+test('compressed saved-data responses preserve complete JSON and vary by negotiation', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'monstats-gzip-'));
+  const prior = process.env.MONSTATS_DATA_DIR;
+  process.env.MONSTATS_DATA_DIR = directory;
+  const store = new Store(join(directory, 'monstats.sqlite'));
+  try {
+    const d = publish(store, [fixture()], '2026-09-30T18:00:00Z', 'gzip');
+    const context = { params: Promise.resolve({ id: d.id }) };
+    const compressed = await GET(
+      new Request(`http://localhost/data/${d.id}`, {
+        headers: { 'Accept-Encoding': 'gzip' },
+      }),
+      context,
+    );
+    assert.equal(compressed.headers.get('content-encoding'), 'gzip');
+    assert.equal(compressed.headers.get('vary'), 'Accept-Encoding');
+    const raw = await GET(
+      new Request(`http://localhost/data/${d.id}`, {
+        headers: { 'Accept-Encoding': 'gzip;q=0' },
+      }),
+      context,
+    );
+    assert.equal(raw.headers.get('content-encoding'), null);
+    assert.deepEqual(
+      JSON.parse(
+        gunzipSync(Buffer.from(await compressed.arrayBuffer())).toString(),
+      ),
+      await raw.json(),
+    );
+  } finally {
+    store.close();
+    if (prior === undefined) delete process.env.MONSTATS_DATA_DIR;
+    else process.env.MONSTATS_DATA_DIR = prior;
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('a cold saved-data request yields the main thread while preparing its full response', async () => {

@@ -152,7 +152,13 @@ export function PerformanceInfo({
         baseline,
         baselineMatches,
         compareBaseline,
-      })}
+      }).map((reason) =>
+        reason.replace(
+          /(\d+) physical matches\/series/g,
+          (_text, count: string) =>
+            `${count} ${Number(count) === 1 ? 'match' : 'matches'}`,
+        ),
+      )}
     />
   );
 }
@@ -164,11 +170,12 @@ export function EvidenceDetails({
   if (!evidence) return <span>Supporting sample unavailable.</span>;
   return (
     <span>
-      {evidence.matches} distinct physical matches/series · {evidence.events}{' '}
-      events. Largest event:{' '}
+      {evidence.matches} {evidence.matches === 1 ? 'match' : 'matches'} ·{' '}
+      {evidence.events} {evidence.events === 1 ? 'event' : 'events'}. Largest
+      event:{' '}
       {evidence.largestEventShare === null
         ? 'unavailable'
-        : `${evidence.largestEventShare.toFixed(1)}% of physical results`}
+        : `${evidence.largestEventShare.toFixed(1)}% of matches`}
       .
       {evidence.sources && (
         <>
@@ -179,11 +186,11 @@ export function EvidenceDetails({
                 .map((s) => `${s.provider} ${s.matches}`)
                 .join(' · ')
             : 'none'}
-          . Provider membership can overlap; counts are not additive.
+          .
         </>
       )}
     </span>
   );
 }
 export const evidenceSortHelp =
-  'Most evidence orders distinct physical matches/series first, then event breadth and canonical identity. It describes volume, not a guarantee of reliability.';
+  'Most evidence sorts by matches, then events. Sample size does not guarantee reliability.';

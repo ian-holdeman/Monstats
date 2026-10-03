@@ -12,7 +12,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <html lang="en">
       <body>
         {children}
-        <footer className="workspace small muted">
+        <footer className="workspace artwork-footer">
           <details>
             <summary>Artwork credits</summary>
             <p>

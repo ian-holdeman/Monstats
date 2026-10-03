@@ -299,6 +299,7 @@ export async function collectVictoryRoad(
   ) => {
     const due = store.state<number>('victory-road-next-request') ?? 0;
     if (due > Date.now()) throw new Error('Victory Road provider cooldown');
+    await store.checkpoint();
     const response = await fetcher(input, init);
     const retry = response.headers.get('retry-after');
     if (response.status === 429 || (response.status >= 500 && retry)) {
@@ -313,6 +314,7 @@ export async function collectVictoryRoad(
           Math.max(1000, Number.isFinite(duration) ? duration : 60000),
       );
     }
+    await store.checkpoint();
     return response;
   }) as typeof fetch;
   const read = async (url: string) => {

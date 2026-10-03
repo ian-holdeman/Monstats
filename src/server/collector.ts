@@ -191,6 +191,7 @@ export async function collect(
     if (cooldown > 0)
       await delay(cooldown, undefined, { signal: options.signal });
     options.heartbeat?.();
+    await store.checkpoint();
     const response = await fetcher(input, init);
     const rate = response.headers.get('ratelimit');
     const remaining = Number(rate?.match(/\br=(\d+)/)?.[1]);
@@ -214,6 +215,7 @@ export async function collect(
           Date.now() + Math.max(1000, duration),
         );
     }
+    await store.checkpoint();
     return response;
   }) as typeof fetch;
   const read = async (path: string) => {

@@ -1,3 +1,7 @@
+import {
+  sinistchaSourceForm,
+  SPECIES_EQUIVALENCE_VERSION,
+} from './species-identity';
 import type { NormalizedEvent, Provenance, Quarantine } from './types';
 import { regulations } from './regulations';
 
@@ -155,10 +159,27 @@ export function reconcileSources(input: NormalizedEvent[]) {
   for (const original of input) {
     // Older snapshots may retain slots after their team validator failed.
     // Repair the normalized copy while preserving the original evidence.
-    const invalid = original.registrations.filter(
-      (r) =>
-        r.slots && new Set(r.slots.map((s) => s.id)).size !== r.slots.length,
-    );
+    const invalid = original.registrations.filter((r) => {
+      if (!r.slots) return false;
+      const seen = new Set<string>();
+      const cosmetic = r.slots.filter((s) => s.id === 'sinistcha');
+      // Only the explicit saved-evidence correction may preserve a collision
+      // of these two former analytical identities; all original slots remain.
+      const forms = cosmetic.map((s) =>
+        sinistchaSourceForm(s.originalId ?? s.originalName),
+      );
+      const permitted =
+        original.identityCorrection === SPECIES_EQUIVALENCE_VERSION &&
+        cosmetic.length === 2 &&
+        forms.includes('unremarkable') &&
+        forms.includes('masterpiece');
+      for (const slot of r.slots) {
+        if (seen.has(slot.id) && !(permitted && slot.id === 'sinistcha'))
+          return true;
+        seen.add(slot.id);
+      }
+      return false;
+    });
     const event = invalid.length
       ? {
           ...original,

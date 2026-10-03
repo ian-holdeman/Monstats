@@ -6,6 +6,7 @@ import {
 import { z } from 'zod';
 import { normalizeSlot, NORMALIZATION_VERSION } from './normalize';
 import { setLabel } from './set-identities';
+import { analyticalSpeciesId, sinistchaSourceForm } from './species-identity';
 import type { Snapshot } from './types';
 
 export const LADDER_VERSION = 'ladder-v1';
@@ -34,7 +35,8 @@ export type LadderPokemon = {
   id: string;
   name: string;
   rawName: string;
-  rank: number;
+  rank: number | null;
+  identityNote?: string;
   usage: number | null;
   rawCount: number | null;
   rawPercent: number | null;
@@ -139,7 +141,8 @@ const schema = z.object({
         id: z.string().regex(/^[a-z0-9]+$/),
         name: z.string().min(1),
         rawName: z.string().min(1),
-        rank: z.number().int().positive(),
+        rank: z.number().int().positive().nullable(),
+        identityNote: z.string().optional(),
         usage: percent.nullable(),
         rawCount: z.number().int().nonnegative().nullable(),
         rawPercent: percent.nullable(),
@@ -335,11 +338,18 @@ export function validateLadder(input: LadderDraft): LadderDraft {
   validateMetadata(d);
   if (
     new Set(d.rows.map((r) => r.id)).size !== d.rows.length ||
-    new Set(d.rows.map((r) => r.rank)).size !== d.rows.length
+    new Set(d.rows.flatMap((r) => (r.rank === null ? [] : [r.rank]))).size !==
+      d.rows.filter((r) => r.rank !== null).length
   )
     throw new Error('Duplicate ladder identity or rank');
   if (d.detailCoverage > d.rows.length)
     throw new Error('Invalid detail coverage');
+  if (
+    d.rows.some(
+      (r) => r.rank === null && (r.id !== 'sinistcha' || !r.identityNote),
+    )
+  )
+    throw new Error('Missing ladder rank without cosmetic-form evidence');
   if (d.environment === 'champions') {
     if (
       d.formatId !== 'championsdoubles' ||
@@ -370,12 +380,12 @@ export function validateLadder(input: LadderDraft): LadderDraft {
       d.season !== null ||
       d.battles === null ||
       d.averageWeight === null ||
-      d.rows.some((r) => r.usage === null)
+      d.rows.some((r) => r.usage === null && !r.identityNote)
     )
       throw new Error('Invalid Showdown monthly contract');
   }
   for (const row of d.rows) {
-    if (identity(row.rawName).id !== row.id)
+    if (identity(row.rawName).id !== analyticalSpeciesId(row.id))
       throw new Error('Invalid ladder canonical identity');
     for (const dist of Object.values(row.builds))
       for (const v of dist.values) {
@@ -388,7 +398,7 @@ export function validateLadder(input: LadderDraft): LadderDraft {
             : v.percent === null || v.rank !== null
         )
           throw new Error('Mixed rank and percent distribution');
-        if (v.id && identity(v.name).id !== v.id)
+        if (v.id && identity(v.name).id !== analyticalSpeciesId(v.id))
           throw new Error('Invalid teammate identity');
       }
   }
@@ -397,6 +407,147 @@ export function validateLadder(input: LadderDraft): LadderDraft {
 function identity(rawName: string) {
   const slot = normalizeSlot({ name: rawName });
   return { id: slot.id, name: slot.name, rawName };
+}
+export function canonicalizeLadder(input: LadderDraft): LadderDraft {
+  const groups = new Map<string, LadderPokemon[]>();
+  for (const row of input.rows) {
+    const id = analyticalSpeciesId(row.id);
+    const group = groups.get(id) ?? [];
+    group.push(row);
+    groups.set(id, group);
+  }
+  const rows = [...groups].map(([id, group]) => {
+    if (
+      group.length > 1 &&
+      (id !== 'sinistcha' ||
+        group.length !== 2 ||
+        new Set(group.map((r) => sinistchaSourceForm(r.rawName))).size !== 2 ||
+        group.some((r) => !sinistchaSourceForm(r.rawName)))
+    )
+      throw new Error('Duplicate ladder identity');
+    const first = group[0];
+    if (id !== 'sinistcha') return { ...first, builds: { ...first.builds } };
+    const row = {
+      ...first,
+      id,
+      name: 'Sinistcha',
+      builds: { ...first.builds },
+    };
+    if (group.length === 1) return row;
+    // A capture supplies ranks and marginals, not a denominator for pooling.
+    row.rank = null;
+    row.trend = undefined;
+    row.identityNote =
+      'Combined rank unavailable; cosmetic forms were ranked separately.';
+    row.builds = {};
+    if (input.environment === 'champions') return row;
+    // Same monthly format/rating report: appearance and weighted usage share
+    // common denominators. Never combine reports or derive usage from ranks.
+    for (const field of [
+      'usage',
+      'rawCount',
+      'rawPercent',
+      'realCount',
+      'realPercent',
+      'setCount',
+    ] as const)
+      row[field] = group.every((r) => r[field] !== null)
+        ? group.reduce((sum, r) => sum + r[field]!, 0)
+        : null;
+    row.identityNote =
+      'Cosmetic forms pooled within this report; combined rank unavailable.';
+    for (const field of [
+      'items',
+      'moves',
+      'abilities',
+      'natures',
+      'spreads',
+      'teammates',
+    ] as const) {
+      const distributions = group.map((r) => r.builds[field]);
+      if (
+        !distributions.every(
+          (d) =>
+            d?.kind === 'percent' &&
+            d.denominator !== null &&
+            d.denominator > 0 &&
+            d.values.every((v) => v.weight !== null),
+        )
+      )
+        continue;
+      const denominator = distributions.reduce(
+        (sum, d) => sum + d!.denominator!,
+        0,
+      );
+      const values = new Map<string, LadderValue>();
+      for (const distribution of distributions)
+        for (const value of distribution!.values) {
+          const key = value.id ?? value.name;
+          const old = values.get(key);
+          values.set(key, {
+            ...value,
+            weight: (old?.weight ?? 0) + value.weight!,
+          });
+        }
+      row.builds[field] = {
+        kind: 'percent',
+        denominator,
+        basis:
+          'Pooled published weights within the same format, month and rating report.',
+        values: [...values.values()]
+          .map((v) => ({ ...v, percent: (100 * v.weight!) / denominator }))
+          .sort((a, b) => b.percent! - a.percent!),
+      };
+    }
+    return row;
+  });
+  // Teammate aliases can collide even when the selected species does not.
+  for (const row of rows) {
+    const dist = row.builds.teammates;
+    if (!dist) continue;
+    const groups = new Map<string, LadderValue[]>();
+    for (const v of dist.values) {
+      const id = analyticalSpeciesId(v.id ?? identity(v.name).id);
+      if (id === row.id) continue;
+      const group = groups.get(id) ?? [];
+      group.push({ ...v, id, name: id === 'sinistcha' ? 'Sinistcha' : v.name });
+      groups.set(id, group);
+    }
+    row.builds = {
+      ...row.builds,
+      teammates: {
+        ...dist,
+        values: [...groups.values()].flatMap((group) => {
+          if (group[0].id !== 'sinistcha') return group;
+          if (group.length === 1) return group;
+          if (
+            dist.kind !== 'percent' ||
+            !dist.denominator ||
+            group.some((v) => v.weight === null)
+          )
+            return [];
+          const weight = group.reduce((sum, v) => sum + v.weight!, 0);
+          return [
+            { ...group[0], weight, percent: (100 * weight) / dist.denominator },
+          ];
+        }),
+        basis:
+          dist.basis +
+          (dist.kind === 'rank'
+            ? ' Cosmetic-form rank collisions are unavailable.'
+            : ''),
+      },
+    };
+  }
+  return {
+    ...input,
+    identityVersion: NORMALIZATION_VERSION,
+    rows,
+    detailCoverage:
+      rows.length === input.rows.length
+        ? input.detailCoverage
+        : rows.filter((r) => Object.keys(r.builds).length > 0).length,
+  };
 }
 export function showdownContract(formatId: string) {
   return configuredShowdown(formatId);
@@ -558,37 +709,39 @@ export function parseShowdown(
     });
   }
   const [year, month] = options.month.split('-').map(Number);
-  return validateLadder({
-    schemaVersion: LADDER_VERSION,
-    identityVersion: NORMALIZATION_VERSION,
-    environment: 'showdown',
-    ...contract,
-    formatId: options.formatId,
-    period: options.month,
-    periodLabel: options.month,
-    month: options.month,
-    season: null,
-    capturedAt: null,
-    periodStart: new Date(Date.UTC(year, month - 1, 1)).toISOString(),
-    periodEnd: new Date(Date.UTC(year, month, 1)).toISOString(),
-    periodBasis:
-      'Calendar month; format-specific subset within the report month.',
-    rating: options.rating,
-    battles,
-    averageWeight,
-    snapshots: options.snapshots,
-    rows,
-    detailCoverage: rows.filter((r) => r.setCount !== null).length,
-    excluded: [],
-    notes: [
-      'Usage is the published rating-weighted team appearance percentage. Rating reports overlap and are never pooled.',
-      'Raw usage appearances, real appearances and raw set observations are distinct source measures; they are not unique players or tournament registrations.',
-      'Low-usage identities can appear in the usage table without a detailed set report; their build coverage remains unavailable.',
-      'Nature marginals are summed from explicitly published nature/spread weights using the same weighted-set denominator.',
-      'The BO3 label identifies the ladder rules. The source reports battles, without establishing a series denominator.',
-      'No team outcome win rates are supplied by these published reports. Checks/counters describe encounters, not team matchups.',
-    ],
-  });
+  return validateLadder(
+    canonicalizeLadder({
+      schemaVersion: LADDER_VERSION,
+      identityVersion: NORMALIZATION_VERSION,
+      environment: 'showdown',
+      ...contract,
+      formatId: options.formatId,
+      period: options.month,
+      periodLabel: options.month,
+      month: options.month,
+      season: null,
+      capturedAt: null,
+      periodStart: new Date(Date.UTC(year, month - 1, 1)).toISOString(),
+      periodEnd: new Date(Date.UTC(year, month, 1)).toISOString(),
+      periodBasis:
+        'Calendar month; format-specific subset within the report month.',
+      rating: options.rating,
+      battles,
+      averageWeight,
+      snapshots: options.snapshots,
+      rows,
+      detailCoverage: rows.filter((r) => r.setCount !== null).length,
+      excluded: [],
+      notes: [
+        'Usage is the published rating-weighted team appearance percentage. Rating reports overlap and are never pooled.',
+        'Raw usage appearances, real appearances and raw set observations are distinct source measures; they are not unique players or tournament registrations.',
+        'Low-usage identities can appear in the usage table without a detailed set report; their build coverage remains unavailable.',
+        'Nature marginals are summed from explicitly published nature/spread weights using the same weighted-set denominator.',
+        'The BO3 label identifies the ladder rules. The source reports battles, without establishing a series denominator.',
+        'No team outcome win rates are supplied by these published reports. Checks/counters describe encounters, not team matchups.',
+      ],
+    }),
+  );
 }
 const tuple = z.tuple([z.string(), z.string()]).rest(z.unknown());
 const championsSchema = z.object({
@@ -670,12 +823,12 @@ export function parseChampions(
       continue;
     if (
       !row ||
-      seen.has(row.id) ||
+      seen.has(row.rawName) ||
       entry.current_pokemon[0] !== row.rawName ||
       Number(entry.current_pokemon[2]) !== row.rank
     )
       throw new Error('Mismatched Champions detail identity/rank');
-    seen.add(row.id);
+    seen.add(row.rawName);
     for (const field of [
       'items',
       'abilities',
@@ -743,34 +896,36 @@ export function parseChampions(
       rank: entry.trend_usage[i],
     }));
   }
-  return validateLadder({
-    schemaVersion: LADDER_VERSION,
-    identityVersion: NORMALIZATION_VERSION,
-    environment: 'champions',
-    regulation: contract.regulation,
-    format: 'BO1',
-    formatId: 'championsdoubles',
-    period: `${contract.season}@${capturedAt}`,
-    periodLabel: `${contract.season} · ${capturedAt.slice(0, 10)}`,
-    month: null,
-    season: contract.season,
-    capturedAt,
-    periodStart: start,
-    periodEnd: end,
-    periodBasis: `Official ranked season ${contract.season} / ${contract.regulation}; the capture response does not specify the underlying Battle Data aggregation window.`,
-    rating: null,
-    battles: null,
-    averageWeight: null,
-    snapshots,
-    rows: rows.sort((a, b) => a.rank - b.rank),
-    detailCoverage: seen.size,
-    excluded,
-    notes: [
-      'Battle Data captured in-game by MunchStats. Usage and teammates are published ranks, not percentages.',
-      'Ranked season and regulation are independently audited; the source aggregation window, tier population and sample counts remain unknown.',
-      'Base/form ranking identities are preserved. Item marginals do not establish transformed-form usage.',
-      'Moves, items, abilities, natures and stat points are independent source distributions, never reconstructed joint sets.',
-      'No competitive outcomes are supplied. Win rates and matchup performance remain unavailable.',
-    ],
-  });
+  return validateLadder(
+    canonicalizeLadder({
+      schemaVersion: LADDER_VERSION,
+      identityVersion: NORMALIZATION_VERSION,
+      environment: 'champions',
+      regulation: contract.regulation,
+      format: 'BO1',
+      formatId: 'championsdoubles',
+      period: `${contract.season}@${capturedAt}`,
+      periodLabel: `${contract.season} · ${capturedAt.slice(0, 10)}`,
+      month: null,
+      season: contract.season,
+      capturedAt,
+      periodStart: start,
+      periodEnd: end,
+      periodBasis: `Official ranked season ${contract.season} / ${contract.regulation}; the capture response does not specify the underlying Battle Data aggregation window.`,
+      rating: null,
+      battles: null,
+      averageWeight: null,
+      snapshots,
+      rows: rows.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)),
+      detailCoverage: seen.size,
+      excluded,
+      notes: [
+        'Battle Data captured in-game by MunchStats. Usage and teammates are published ranks, not percentages.',
+        'Ranked season and regulation are independently audited; the source aggregation window, tier population and sample counts remain unknown.',
+        'Base/form ranking identities are preserved. Item marginals do not establish transformed-form usage.',
+        'Moves, items, abilities, natures and stat points are independent source distributions, never reconstructed joint sets.',
+        'No competitive outcomes are supplied. Win rates and matchup performance remain unavailable.',
+      ],
+    }),
+  );
 }

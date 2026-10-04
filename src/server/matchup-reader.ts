@@ -28,7 +28,10 @@ async function runBounded<T>(task: () => Promise<T>): Promise<T> {
   }
 }
 export async function readMatchups(id: string, input: MatchupRequest) {
-  return withReadSnapshot(() => readPinnedMatchups(id, input));
+  return withReadSnapshot(() => readPinnedMatchups(id, input), {
+    kind: 'tournament',
+    id,
+  });
 }
 async function readPinnedMatchups(id: string, input: MatchupRequest) {
   const path = databasePath(),

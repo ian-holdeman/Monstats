@@ -184,6 +184,7 @@ import {parentPort} from 'node:worker_threads';
 const calls = new Map();
 parentPort.on('message', ({id,command}) => {
   const count=(calls.get(command.id)||0)+1; calls.set(command.id,count);
+  if(command.kind==='app') { parentPort.postMessage({id,result:{kind:'app',data:{current:null,archives:[],status:{state:'success',attemptedAt:String(count)},readError:false,now:new Date().toISOString()}}}); return; }
   if(command.id==='hang') return;
   if(command.id==='crash') process.exit(2);
   if(command.id==='failure'&&count===1) {parentPort.postMessage({id,error:true});return;}
@@ -299,6 +300,28 @@ test('same-path database and WAL generations cannot reuse a prior serialized res
       assert.equal(decoded(await reader.read(q)).reads, 2);
       writeFileSync(path + '-wal', 'new-evidence-transaction');
       assert.equal(decoded(await reader.read(q)).reads, 3);
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('page navigation reuses saved metadata but reloads after a local commit', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'monstats-page-cache-'));
+  const path = join(directory, 'database');
+  writeFileSync(path, 'first');
+  try {
+    await withReader(async (reader) => {
+      const read = async () => {
+        const result = await reader.read({ kind: 'app', path });
+        assert.equal(result.kind, 'app');
+        if (result.kind !== 'app') throw new Error('Wrong result');
+        return result.data.status?.attemptedAt;
+      };
+      assert.equal(await read(), '1');
+      assert.equal(await read(), '1');
+      writeFileSync(path + '-wal', 'new publication');
+      assert.equal(await read(), '2');
     });
   } finally {
     rmSync(directory, { recursive: true, force: true });

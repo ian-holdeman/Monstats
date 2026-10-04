@@ -11,10 +11,12 @@ import {
 import { checkDatabase } from '../backup';
 import { cloudRuntime, readScope } from './read-scope';
 import { resourceUsage } from './resource-usage';
+import { DatabaseSync } from 'node:sqlite';
 
 const manifestSchema = z.object({
   protocol: z.literal(1),
   database: artifactSchema,
+  workingSet: artifactSchema.optional(),
   sprites: artifactSchema,
   validation: z.literal('full-serving-v1').optional(),
 });
@@ -22,8 +24,10 @@ const spritesSchema = z.record(
   z.string().regex(/^[a-z0-9]+\.png$/),
   z.string().max(2 * 1024 * 1024),
 );
-function getReader() {
-  if (cloudRuntime.reader) return cloudRuntime.reader;
+function getReader(
+  kind: 'reader' | 'historyReader' | 'spriteReader' = 'reader',
+) {
+  if (cloudRuntime[kind]) return cloudRuntime[kind];
   const controlBucket = process.env.MONSTATS_CONTROL_BUCKET;
   const servingBucket = process.env.MONSTATS_SERVING_BUCKET;
   if (!controlBucket || !servingBucket)
@@ -35,7 +39,7 @@ function getReader() {
     /* turbopackIgnore: true */ process.env.MONSTATS_DATA_DIR ??
       '/tmp/monstats',
   );
-  cloudRuntime.reader = new PinnedReader(
+  const reader = new PinnedReader(
     async () => {
       const { state } = await control.read();
       if (!state.serving) throw new Error('Cloud publication missing');
@@ -57,16 +61,21 @@ function getReader() {
         const manifest = manifestSchema.parse(
           JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8')),
         );
+        const database =
+          kind === 'reader'
+            ? (manifest.workingSet ?? manifest.database)
+            : manifest.database;
         if (
-          manifest.database.bytes > 2 * 1024 ** 3 ||
+          database.bytes > 2 * 1024 ** 3 ||
           manifest.sprites.bytes > 16 * 1024 ** 2
         )
           throw new Error('Materialization capacity exceeded');
-        await downloadFile(
-          bucket,
-          manifest.database,
-          join(directory, 'monstats.sqlite'),
-        );
+        if (kind !== 'spriteReader')
+          await downloadFile(
+            bucket,
+            database,
+            join(directory, 'monstats.sqlite'),
+          );
         await downloadFile(
           bucket,
           manifest.sprites,
@@ -88,15 +97,17 @@ function getReader() {
             flag: 'wx',
           });
         }
-        checkDatabase(join(directory, 'monstats.sqlite'), {
-          sealed: manifest.validation === 'full-serving-v1',
-        });
+        if (kind !== 'spriteReader')
+          checkDatabase(join(directory, 'monstats.sqlite'), {
+            sealed: manifest.validation === 'full-serving-v1',
+          });
         console.info(
           JSON.stringify({
             event: 'publication-ready',
             artifact: descriptor.key,
             generation: descriptor.generation,
-            databaseBytes: manifest.database.bytes,
+            databaseBytes: kind === 'spriteReader' ? 0 : database.bytes,
+            kind,
             materializeMs: Date.now() - started,
             ...(await resourceUsage()),
           }),
@@ -117,14 +128,50 @@ function getReader() {
       await rm(directory, { recursive: true, force: true });
     },
   );
-  return cloudRuntime.reader;
+  cloudRuntime[kind] = reader;
+  return reader;
 }
 
-export async function withReadSnapshot<T>(task: () => Promise<T>): Promise<T> {
+export type PublicationSelection = {
+  kind: 'tournament' | 'ladder';
+  id: string;
+};
+export function needsHistory(path: string, publication: PublicationSelection) {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return (
+      !!db
+        .prepare("SELECT 1 FROM sqlite_master WHERE name='serving_history'")
+        .get() &&
+      !!db
+        .prepare('SELECT 1 FROM serving_history WHERE kind=? AND id=?')
+        .get(publication.kind, publication.id)
+    );
+  } finally {
+    db.close();
+  }
+}
+export async function withReadSnapshot<T>(
+  task: () => Promise<T>,
+  publication?: PublicationSelection | 'sprites',
+): Promise<T> {
   if (!process.env.MONSTATS_CONTROL_BUCKET || readScope.getStore())
     return task();
-  const pin = await getReader().acquire();
+  let pin = await getReader(
+    publication === 'sprites' ? 'spriteReader' : 'reader',
+  ).acquire();
   try {
+    if (
+      publication &&
+      publication !== 'sprites' &&
+      needsHistory(pin.path, publication)
+    ) {
+      // The hot snapshot may be newer than the independently cached history.
+      // Recheck its pointer so a newly superseded ID does not get a false 404.
+      const historical = await getReader('historyReader').acquire(true);
+      await pin.release();
+      pin = historical;
+    }
     return await readScope.run(dirname(pin.path), task);
   } finally {
     await pin.release();

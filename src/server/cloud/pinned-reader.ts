@@ -14,8 +14,12 @@ export class PinnedReader {
     private refreshMs = 30000,
   ) {}
 
-  async acquire() {
-    if (!this.current || this.now() - this.checkedAt >= this.refreshMs) {
+  async acquire(forceRefresh = false) {
+    if (
+      forceRefresh ||
+      !this.current ||
+      this.now() - this.checkedAt >= this.refreshMs
+    ) {
       if (!this.refreshing) {
         this.refreshing = this.refresh().finally(() => {
           this.refreshing = undefined;

@@ -10,6 +10,7 @@
     "dev": "npm run build:workers && next dev --hostname 127.0.0.1",
     "build": "next build && npm run build:workers",
     "start": "next start --hostname 127.0.0.1",
+    "local": "node scripts/local.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "tsx --test tests/*.test.ts",

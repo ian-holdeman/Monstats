@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import { resolve } from 'node:path';
-import { statSync } from 'node:fs';
+import { storageGeneration } from './serving-cache';
 import { databasePath } from './paths';
 import type { AppData } from './reader';
 import { EVIDENCE_VERSION } from '../domain/evidence';
@@ -40,17 +40,6 @@ type Job = {
 
 // Local storage remains writable: backups and supplemental indexes can change
 // the bytes behind a path. Include WAL commits as well as main-file replacement.
-function storageGeneration(path: string) {
-  return [path, `${path}-wal`].map((file) => {
-    try {
-      // Runtime database files are external to the release, never build inputs.
-      const s = statSync(/* turbopackIgnore: true */ file, { bigint: true });
-      return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].map(String);
-    } catch {
-      return null;
-    }
-  });
-}
 
 // One cold reader, two queued distinct reads, and eight total subscribers.
 // Only fully evidenced immutable JSON responses enter the byte-bounded cache.
@@ -65,6 +54,7 @@ export class ServingReader {
   private pending = new Map<string, Job>();
   private cached = new Map<string, DatasetResponse>();
   private cachedBytes = 0;
+  private cachedApp?: { key: string; data: AppData };
   constructor(
     private workerFile = resolve('dist/workers/serving-reader.mjs'),
     private limits = {
@@ -84,6 +74,11 @@ export class ServingReader {
       storageGeneration(command.path),
       command,
     ]);
+    if (command.kind === 'app' && this.cachedApp?.key === key)
+      return Promise.resolve({
+        kind: 'app',
+        data: { ...this.cachedApp.data, now: new Date().toISOString() },
+      });
     const cached = this.cached.get(key);
     if (cached) {
       this.cached.delete(key);
@@ -131,6 +126,12 @@ export class ServingReader {
     this.pending.delete(job.key);
     if (error) job.reject(error);
     else if (result) {
+      if (
+        result.kind === 'app' &&
+        !result.data.readError &&
+        !result.data.ladder?.readError
+      )
+        this.cachedApp = { key: job.key, data: result.data };
       if (
         result.kind === 'dataset' &&
         result.status === 200 &&
@@ -262,6 +263,7 @@ export class ServingReader {
     for (const job of this.queued.splice(0))
       this.finish(job, undefined, new ServingUnavailableError('Reader closed'));
     this.cached.clear();
+    this.cachedApp = undefined;
     this.cachedBytes = 0;
     const worker = this.worker;
     this.worker = undefined;
@@ -273,16 +275,19 @@ const shared = new ServingReader();
 export async function readSavedDataset(
   input: Omit<DatasetRead, 'kind' | 'path'>,
 ) {
-  return withReadSnapshot(async () => {
-    const result = await shared.read({
-      kind: 'dataset',
-      path: databasePath(),
-      ...input,
-    });
-    if (result.kind !== 'dataset')
-      throw new ServingUnavailableError('Invalid reader response');
-    return result;
-  });
+  return withReadSnapshot(
+    async () => {
+      const result = await shared.read({
+        kind: 'dataset',
+        path: databasePath(),
+        ...input,
+      });
+      if (result.kind !== 'dataset')
+        throw new ServingUnavailableError('Invalid reader response');
+      return result;
+    },
+    { kind: 'tournament', id: input.id },
+  );
 }
 export async function readPageData(): Promise<AppData> {
   try {

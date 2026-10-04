@@ -13,7 +13,11 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    return await withReadSnapshot(() => readLadder(request, context));
+    const { id } = await context.params;
+    return await withReadSnapshot(() => readLadder(request, context), {
+      kind: 'ladder',
+      id,
+    });
   } catch {
     return Response.json(
       { error: 'Saved ladder unavailable' },

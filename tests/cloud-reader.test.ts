@@ -2,6 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PinnedReader } from '../src/server/cloud/pinned-reader';
 
+test('a history lookup can adopt a newer publication before the normal polling interval', async () => {
+  let version = 'a';
+  const reader = new PinnedReader(
+    async () => version,
+    async (id) => `/immutable/${id}`,
+    async () => {},
+    () => 0,
+  );
+  const first = await reader.acquire();
+  version = 'b';
+  const old = await reader.acquire();
+  assert.equal(old.path, '/immutable/a');
+  const latest = await reader.acquire(true);
+  assert.equal(latest.path, '/immutable/b');
+  await Promise.all([first.release(), old.release(), latest.release()]);
+});
+
 test('publication refresh never removes a path while a query worker still owns it', async () => {
   let version = 'a';
   let now = 0;

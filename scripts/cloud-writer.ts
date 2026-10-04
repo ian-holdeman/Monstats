@@ -22,7 +22,10 @@ import {
   downloadFile,
   artifactSchema,
 } from '../src/server/cloud/storage';
-import { createServingArtifact } from '../src/server/cloud/serving-artifact';
+import {
+  createServingArtifact,
+  createWorkingSet,
+} from '../src/server/cloud/serving-artifact';
 import { nextCloudWork } from '../src/server/cloud/schedule';
 import { correctSavedIdentities } from '../src/server/identity-correction';
 import { resourceUsage } from '../src/server/cloud/resource-usage';
@@ -96,20 +99,33 @@ try {
     });
   const work = nextCloudWork(store);
   const correction = process.argv.includes('--correct-identities');
-  if (correction || work.at <= Date.now()) {
+  const rebuildServing = process.argv.includes('--rebuild-serving');
+  if (correction && rebuildServing)
+    throw new Error('Choose one maintenance operation');
+  const maintenance = correction || rebuildServing;
+  const kind = correction
+    ? 'identity-correction'
+    : rebuildServing
+      ? 'rebuild-serving'
+      : work.kind;
+  if (maintenance || work.at <= Date.now()) {
     await store.checkpoint();
     let outcome = 'ok';
-    if (correction) {
-      // Corrections change no collection/final ledger and contact no provider.
-      // Do not checkpoint partial corrections ahead of the serving pointer.
+    if (maintenance) {
+      // Maintenance contacts no provider and preserves the collection/final ledger.
+      // Do not checkpoint partial changes ahead of the serving pointer.
       journal.close();
       journal = undefined;
       console.info(
         JSON.stringify({
-          state: 'identity-correction',
-          versions: correctSavedIdentities(store).map(
-            ({ kind, before, after }) => ({ kind, before, after }),
-          ),
+          state: kind,
+          versions: correction
+            ? correctSavedIdentities(store).map(({ kind, before, after }) => ({
+                kind,
+                before,
+                after,
+              }))
+            : [],
         }),
       );
     } else if (work.kind === 'tournament') {
@@ -135,7 +151,7 @@ try {
     console.info(
       JSON.stringify({
         state: 'collected',
-        kind: correction ? 'identity-correction' : work.kind,
+        kind,
         outcome,
         ...(await resourceUsage()),
       }),
@@ -147,6 +163,8 @@ try {
     checkDatabase(basePath);
     const servingPath = join(directory, 'serving.sqlite');
     await createServingArtifact(store, servingPath);
+    const workingPath = join(directory, 'working.sqlite');
+    await createWorkingSet(store, workingPath);
     await downloadFile(
       serving,
       claimed.serving,
@@ -158,19 +176,21 @@ try {
     const sprites = artifactSchema.parse(prior.sprites);
     const base = await uploadFile(operational, basePath);
     const database = await uploadFile(serving, servingPath);
+    const workingSet = await uploadFile(serving, workingPath);
     const manifest = await uploadBytes(
       serving,
       Buffer.from(
         JSON.stringify({
           protocol: 1,
           database,
+          workingSet,
           sprites,
           validation: 'full-serving-v1',
         }),
       ),
     );
     let backupAt = claimed.backupAt;
-    if (correction || !backupAt || Date.now() - backupAt >= 86400000) {
+    if (maintenance || !backupAt || Date.now() - backupAt >= 86400000) {
       backupAt = await backupPublication(
         operational,
         serving,
@@ -201,8 +221,12 @@ try {
       new Set([
         claimed.serving.key,
         artifactSchema.parse(prior.database).key,
+        ...(prior.workingSet
+          ? [artifactSchema.parse(prior.workingSet).key]
+          : []),
         sprites.key,
         database.key,
+        workingSet.key,
         manifest.key,
       ]),
       Date.now() - 2 * 86400000,
@@ -216,7 +240,7 @@ try {
         state: 'committed',
         severity: outcome === 'ok' ? 'INFO' : 'WARNING',
         outcome,
-        kind: correction ? 'identity-correction' : work.kind,
+        kind,
         manifest: manifest.key,
         ...(await resourceUsage()),
       }),

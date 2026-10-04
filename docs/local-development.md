@@ -16,6 +16,15 @@ npm start
 
 ## Saved data
 
+For an imported local snapshot, run `npm run build` once and `npm run local`.
+The local launcher uses `.monstats/local-latest/`, binds to
+[127.0.0.1:3200](http://127.0.0.1:3200), and explicitly disables cloud reads.
+Optional `.monstats/local-config.json` can specify `dataDirectory` and `port`.
+Local browsing and calculations work without internet and generate no hosting
+requests. A snapshot stays at its recorded observation times until explicitly
+refreshed; it is not a second collector. Existing production collection and
+hosting continue independently.
+
 An empty installation has no statistics. Explicit collection commands contact the configured providers:
 
 ```sh

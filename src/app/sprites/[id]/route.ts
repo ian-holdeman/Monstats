@@ -10,11 +10,13 @@ export async function GET(
   const { id } = await params;
   if (!/^[a-z0-9]+$/.test(id)) return new Response(null, { status: 404 });
   try {
-    const bytes = await withReadSnapshot(() =>
-      readFile(
-        /* turbopackIgnore: true */
-        resolve(dataDirectory(), 'sprites', `${id}.png`),
-      ),
+    const bytes = await withReadSnapshot(
+      () =>
+        readFile(
+          /* turbopackIgnore: true */
+          resolve(dataDirectory(), 'sprites', `${id}.png`),
+        ),
+      'sprites',
     );
     await validateArtwork(bytes);
     return new Response(bytes, {

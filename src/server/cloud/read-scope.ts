@@ -1,7 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PinnedReader } from './pinned-reader';
 
-type Runtime = { scope: AsyncLocalStorage<string>; reader?: PinnedReader };
+type Runtime = {
+  scope: AsyncLocalStorage<string>;
+  reader?: PinnedReader;
+  historyReader?: PinnedReader;
+  spriteReader?: PinnedReader;
+};
 // Next can instantiate modules separately for page and route bundles. Storage
 // copies and request pins must have process-wide ownership across those bundles.
 const key = Symbol.for('monstats.cloud.runtime.v1');
